@@ -1,8 +1,10 @@
-from django.shortcuts import render
+from django.contrib import messages
+from django.db import transaction
+from django.shortcuts import get_object_or_404, redirect, render
 
 from cuentas.sesion import corredora_actual
 
-from .forms import FiltroForm
+from .forms import CalificacionForm, DetallesForm, FiltroForm
 from .models import CONCEPTOS, CalificacionBase, CalificacionLocal
 
 
@@ -51,4 +53,32 @@ def mantenedor(request):
         'filtro': filtro,
         'filas': filas,
         'conceptos': CONCEPTOS,
+    })
+
+
+def formulario(request, pk=None):
+    """Ingresar (sin pk) o modificar (con pk) una calificación local de la corredora de la sesión."""
+    corredora = corredora_actual(request)
+    if pk is None:
+        calificacion = CalificacionLocal(corredora=corredora, forma_ingreso=CalificacionLocal.FormaIngreso.MANUAL)
+    else:
+        # Filtrar por corredora hace que la de otra corredora responda 404, sin revelar que existe.
+        calificacion = get_object_or_404(CalificacionLocal, pk=pk, corredora=corredora, activa=True)
+
+    datos = request.POST if request.method == 'POST' else None
+    form = CalificacionForm(datos, instance=calificacion)
+    detalles = DetallesForm(datos, calificacion=calificacion if pk else None)
+
+    if datos is not None and form.is_valid() and detalles.is_valid():
+        with transaction.atomic():
+            calificacion = form.save()
+            detalles.save(calificacion)
+        messages.success(request, 'Calificación actualizada correctamente.' if pk else 'Calificación ingresada correctamente.')
+        return redirect('calificaciones:mantenedor')
+
+    return render(request, 'calificaciones/formulario.html', {
+        'corredora': corredora,
+        'calificacion': calificacion if pk else None,
+        'form': form,
+        'detalles': detalles,
     })

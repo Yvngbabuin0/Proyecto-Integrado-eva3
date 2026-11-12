@@ -9,6 +9,7 @@
     <h1>Mantenedor de calificaciones</h1>
     <p>Consulta y administra las calificaciones del ámbito de {{ corredora.nombre }}.</p>
   </div>
+  <a href="{% url 'calificaciones:ingresar' %}" class="button button--primary">+ Ingresar</a>
 </div>
 
 <form method="get" class="panel filters" aria-label="Filtros de búsqueda">
@@ -37,6 +38,7 @@
       <table>
         <thead>
           <tr>
+            <th class="sticky-col">Acciones</th>
             <th>Ejercicio</th>
             <th>Instrumento</th>
             <th>Fecha pago</th>
@@ -52,6 +54,15 @@
         <tbody>
           {% for fila in filas %}
             <tr>
+              <td class="sticky-col">
+                {% if fila.es_local %}
+                  <div class="row-actions">
+                    <a href="{% url 'calificaciones:modificar' fila.pk %}" class="button button--small">Modificar</a>
+                  </div>
+                {% else %}
+                  <span class="help">Solo lectura</span>
+                {% endif %}
+              </td>
               <td>{{ fila.ejercicio }}</td>
               <td><strong>{{ fila.instrumento.codigo }}</strong></td>
               <td>{{ fila.fecha_pago|date:"d-m-Y" }}</td>

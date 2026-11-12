@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+
+{% block titulo %}{% if calificacion %}Modificar{% else %}Ingresar{% endif %} calificación · Calificaciones Tributarias{% endblock %}
+
+{% block contenido %}
+<a href="{% url 'calificaciones:mantenedor' %}" class="back-link">← Volver al mantenedor</a>
+
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">{% if calificacion %}Edición de registro local{% else %}Nuevo registro local{% endif %}</p>
+    <h1>{% if calificacion %}Modificar {{ calificacion.instrumento.codigo }}{% else %}Ingresar calificación{% endif %}</h1>
+    <p>Completa los datos iniciales y los montos y factores de cada concepto.</p>
+  </div>
+  {% if calificacion %}
+    <div>
+      <span class="help">Última modificación</span><br>
+      <strong>{{ calificacion.modificada|date:"d-m-Y H:i" }}</strong>
+    </div>
+  {% endif %}
+</div>
+
+{% if form.errors or detalles.errors %}
+  <p class="alert alert--error" role="alert">Revisa los campos marcados antes de guardar.</p>
+{% endif %}
+
+<form method="post" novalidate>
+  {% csrf_token %}
+  {{ form.non_field_errors }}
+
+  <section class="panel">
+    <div class="form-section">
+      <h2>Datos iniciales</h2>
+      <p>Todos los campos son obligatorios salvo el indicador ISFUT.</p>
+      <div class="form-grid">
+        {% for campo in form %}
+          {% if campo.name == 'isfut' %}
+            <label class="check-field">{{ campo }} <span>{{ campo.label }}</span></label>
+          {% else %}
+            <label class="field{% if campo.name == 'descripcion' %} field--full{% endif %}{% if campo.errors %} field--error{% endif %}">
+              <span>{{ campo.label }}</span>
+              {{ campo }}
+              {% for error in campo.errors %}<small>{{ error }}</small>{% endfor %}
+            </label>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h2>Montos y factores</h2>
+      <p>Los montos van en pesos. Los factores van entre 0 y 1, con hasta 8 decimales (usa coma decimal).</p>
+      <div class="table-scroll">
+        <table class="concept-table">
+          <thead>
+            <tr>
+              <th>N°</th>
+              <th>Concepto</th>
+              <th class="number">Monto</th>
+              <th class="number">Factor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for concepto, monto, factor, en_suma in detalles.filas %}
+              {% if concepto.numero == 20 %}
+                <tr class="separador"><td colspan="4">Conceptos 20 a 37: no participan en la suma de factores 8 a 19</td></tr>
+              {% endif %}
+              <tr class="{% if monto.errors or factor.errors %}concept-row--error{% endif %}">
+                <td>{{ concepto.numero }}</td>
+                <td>{{ concepto.nombre }}</td>
+                <td>
+                  {{ monto }}
+                  {% for error in monto.errors %}<small class="error-text">{{ error }}</small>{% endfor %}
+                </td>
+                <td>
+                  {{ factor }}
+                  {% for error in factor.errors %}<small class="error-text">{{ error }}</small>{% endfor %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <div class="form-actions">
+    <a href="{% url 'calificaciones:mantenedor' %}" class="button button--ghost">Cancelar</a>
+    <button type="submit" class="button button--primary">Guardar calificación</button>
+  </div>
+</form>
+{% endblock %}
