@@ -82,3 +82,20 @@ def formulario(request, pk=None):
         'form': form,
         'detalles': detalles,
     })
+
+
+def baja(request, pk):
+    """Baja lógica: la calificación sale del listado, pero se conserva con su histórico."""
+    corredora = corredora_actual(request)
+    calificacion = get_object_or_404(CalificacionLocal, pk=pk, corredora=corredora, activa=True)
+
+    if request.method == 'POST':
+        calificacion.activa = False
+        calificacion.save(update_fields=['activa', 'modificada'])
+        messages.success(request, 'Registro retirado del listado activo. El histórico se conservó.')
+        return redirect('calificaciones:mantenedor')
+
+    return render(request, 'calificaciones/confirmar_baja.html', {
+        'corredora': corredora,
+        'calificacion': calificacion,
+    })

@@ -58,6 +58,7 @@
                 {% if fila.es_local %}
                   <div class="row-actions">
                     <a href="{% url 'calificaciones:modificar' fila.pk %}" class="button button--small">Modificar</a>
+                    <a href="{% url 'calificaciones:eliminar' fila.pk %}" class="button button--small">Eliminar</a>
                   </div>
                 {% else %}
                   <span class="help">Solo lectura</span>

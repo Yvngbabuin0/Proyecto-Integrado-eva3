@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block titulo %}Confirmar eliminación · Calificaciones Tributarias{% endblock %}
+
+{% block contenido %}
+<a href="{% url 'calificaciones:mantenedor' %}" class="back-link">← Volver al mantenedor</a>
+
+<section class="panel form-section">
+  <h2>Confirmar eliminación</h2>
+  <p class="help">Esta acción realiza una baja lógica.</p>
+
+  <div class="record-summary">
+    <div><span>Instrumento</span><strong>{{ calificacion.instrumento.codigo }}</strong></div>
+    <div><span>Ejercicio</span><strong>{{ calificacion.ejercicio }}</strong></div>
+    <div><span>Evento</span><strong>{{ calificacion.secuencia_evento }}</strong></div>
+    <div><span>Descripción</span><strong>{{ calificacion.descripcion }}</strong></div>
+  </div>
+
+  <p class="alert alert--warning">
+    El registro dejará de estar activo. Se conservará el histórico.
+    {% if calificacion.base %}En el listado volverá a mostrarse la calificación informada por Bolsa.{% endif %}
+  </p>
+
+  <form method="post" class="form-actions">
+    {% csrf_token %}
+    <a href="{% url 'calificaciones:mantenedor' %}" class="button button--ghost">Cancelar</a>
+    <button type="submit" class="button button--danger">Confirmar eliminación</button>
+  </form>
+</section>
+{% endblock %}
