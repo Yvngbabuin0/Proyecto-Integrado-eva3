@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+
+{% block titulo %}Mantenedor · Calificaciones Tributarias{% endblock %}
+
+{% block contenido %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">Operación tributaria</p>
+    <h1>Mantenedor de calificaciones</h1>
+    <p>Consulta y administra las calificaciones del ámbito de {{ corredora.nombre }}.</p>
+  </div>
+</div>
+
+<form method="get" class="panel filters" aria-label="Filtros de búsqueda">
+  {% for campo in filtro %}
+    <label class="field">
+      <span>{{ campo.label }}</span>
+      {{ campo }}
+    </label>
+  {% endfor %}
+  <div class="filter-actions">
+    <button type="submit" class="button button--primary">Buscar</button>
+    <a href="{% url 'calificaciones:mantenedor' %}" class="button button--ghost">Limpiar</a>
+  </div>
+</form>
+
+<section class="panel">
+  <div class="table-toolbar">
+    <div>
+      <h2>Resultados</h2>
+      <span>{{ filas|length }} registro{{ filas|length|pluralize }} encontrado{{ filas|length|pluralize }}</span>
+    </div>
+  </div>
+
+  {% if filas %}
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Ejercicio</th>
+            <th>Instrumento</th>
+            <th>Fecha pago</th>
+            <th>Descripción</th>
+            <th>Secuencia evento</th>
+            <th>ISFUT</th>
+            <th>Origen</th>
+            <th>Forma de ingreso</th>
+            <th>Factor actualización</th>
+            {% for numero in conceptos %}<th class="number">Factor {{ numero }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for fila in filas %}
+            <tr>
+              <td>{{ fila.ejercicio }}</td>
+              <td><strong>{{ fila.instrumento.codigo }}</strong></td>
+              <td>{{ fila.fecha_pago|date:"d-m-Y" }}</td>
+              <td>{{ fila.descripcion }}</td>
+              <td class="mono">{{ fila.secuencia_evento }}</td>
+              <td>{{ fila.isfut|yesno:"Sí,No" }}</td>
+              <td>
+                {% if fila.es_local %}
+                  <span class="badge badge--teal">Corredora</span>
+                {% else %}
+                  <span class="badge">Bolsa / Sistema</span>
+                {% endif %}
+              </td>
+              <td>{% if fila.es_local %}{{ fila.get_forma_ingreso_display }}{% else %}Archivo{% endif %}</td>
+              <td class="number">{{ fila.factor_actualizacion|floatformat:"-8" }}</td>
+              {% for factor in fila.factores %}<td class="number">{{ factor|floatformat:8 }}</td>{% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="table-footer">Desplázate horizontalmente para ver los factores. Los registros de Bolsa / Sistema son de solo lectura.</p>
+  {% else %}
+    <div class="empty-state">
+      <h3>Sin coincidencias</h3>
+      <p>No encontramos registros con los filtros aplicados.</p>
+      <a href="{% url 'calificaciones:mantenedor' %}" class="button">Restablecer filtros</a>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}
