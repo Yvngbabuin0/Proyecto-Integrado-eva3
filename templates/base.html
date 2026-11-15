@@ -17,16 +17,24 @@
         <span>Administración local</span>
       </div>
     </div>
-    {% if corredora %}
-      <div class="user">
-        <strong>{% if user.is_authenticated %}{{ user.get_username }}{% else %}Sesión de desarrollo{% endif %}</strong>
-        <span>{{ corredora.nombre }}</span>
+    {% if user.is_authenticated %}
+      <div class="user-menu">
+        <div class="user">
+          <strong>{{ user.get_full_name|default:user.get_username }}</strong>
+          <span>{{ user.corredora.nombre|default:"Sin corredora" }}</span>
+        </div>
+        <form method="post" action="{% url 'cuentas:logout' %}">
+          {% csrf_token %}
+          <button type="submit" class="button button--small button--on-dark">Cerrar sesión</button>
+        </form>
       </div>
     {% endif %}
   </header>
-  <nav class="section-nav" aria-label="Navegación principal">
-    <a href="{% url 'calificaciones:mantenedor' %}" class="active">Mantenedor</a>
-  </nav>
+  {% if user.is_authenticated %}
+    <nav class="section-nav" aria-label="Navegación principal">
+      <a href="{% url 'calificaciones:mantenedor' %}" class="active">Mantenedor</a>
+    </nav>
+  {% endif %}
 
   <main class="page">
     {% if messages %}

@@ -52,6 +52,17 @@ INSTALLED_APPS = [
 
 AUTH_USER_MODEL = 'cuentas.Usuario'
 
+LOGIN_URL = 'cuentas:login'
+LOGIN_REDIRECT_URL = 'calificaciones:mantenedor'
+LOGOUT_REDIRECT_URL = 'cuentas:login'
+
+# Sesiones: se cierran al cerrar el navegador y duran como máximo 8 horas.
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_COOKIE_AGE = 8 * 60 * 60
+# Fuera de desarrollo, las cookies solo viajan por HTTPS.
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

@@ -47,6 +47,15 @@ p { margin: 0; }
 }
 .brand span, .user span { display: block; font-size: 12px; opacity: .75; }
 .user { text-align: right; }
+.user-menu { display: flex; align-items: center; gap: 16px; }
+.button--on-dark { background: transparent; color: #fff; border-color: rgb(255 255 255 / 35%); }
+.button--on-dark:hover { background: rgb(255 255 255 / 10%); }
+
+/* Inicio de sesión */
+.login-panel { max-width: 400px; margin: 48px auto; }
+.login-panel h1 { font-size: 22px; color: var(--navy); }
+.login-panel .form-section > p { color: var(--muted); margin: 4px 0 20px; }
+.login-form { display: flex; flex-direction: column; gap: 16px; }
 .section-nav {
   display: flex; gap: 4px; padding: 0 36px;
   background: var(--surface); border-bottom: 1px solid var(--line);

@@ -1,4 +1,6 @@
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required, permission_required
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -17,6 +19,8 @@ def con_factores(calificaciones):
     return list(calificaciones)
 
 
+@login_required
+@permission_required('calificaciones.view_calificacionlocal', raise_exception=True)
 def mantenedor(request):
     corredora = corredora_actual(request)
     locales = CalificacionLocal.objects.filter(corredora=corredora, activa=True)
@@ -56,8 +60,12 @@ def mantenedor(request):
     })
 
 
+@login_required
 def formulario(request, pk=None):
     """Ingresar (sin pk) o modificar (con pk) una calificación local de la corredora de la sesión."""
+    permiso = 'calificaciones.add_calificacionlocal' if pk is None else 'calificaciones.change_calificacionlocal'
+    if not request.user.has_perm(permiso):
+        raise PermissionDenied
     corredora = corredora_actual(request)
     if pk is None:
         calificacion = CalificacionLocal(corredora=corredora, forma_ingreso=CalificacionLocal.FormaIngreso.MANUAL)
@@ -84,6 +92,8 @@ def formulario(request, pk=None):
     })
 
 
+@login_required
+@permission_required('calificaciones.change_calificacionlocal', raise_exception=True)
 def baja(request, pk):
     """Baja lógica: la calificación sale del listado, pero se conserva con su histórico."""
     corredora = corredora_actual(request)

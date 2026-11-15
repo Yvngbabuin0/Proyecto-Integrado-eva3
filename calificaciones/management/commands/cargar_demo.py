@@ -1,7 +1,9 @@
 from datetime import date
 from decimal import Decimal
 
-from django.core.management.base import BaseCommand
+from django.conf import settings
+from django.contrib.auth.models import Group
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from calificaciones.models import (
@@ -13,7 +15,7 @@ from calificaciones.models import (
     Instrumento,
     Mercado,
 )
-from cuentas.models import Corredora
+from cuentas.models import Corredora, Usuario
 
 # Datos ficticios basados en el prototipo de Figma. Nada de esto corresponde a datos reales.
 CORREDORAS = [
@@ -40,6 +42,15 @@ LOCALES = [
      ['1000000', '1000000']),
 ]
 
+# (usuario, rol, corredora o None, acceso al panel /admin/)
+USUARIOS = [
+    ('analista_a', 'Analista Tributario', 'Corredora A', False),
+    ('corredor_a', 'Corredor', 'Corredora A', False),
+    ('corredor_b', 'Corredor', 'Corredora B', False),
+    ('administrador', 'Administrador', None, True),
+    ('auditor', 'Auditor', None, False),
+]
+
 
 def factores_desde_montos(montos):
     total = sum(montos, Decimal(0))
@@ -49,8 +60,18 @@ def factores_desde_montos(montos):
 class Command(BaseCommand):
     help = 'Carga corredoras, instrumentos y calificaciones ficticias para desarrollo. Se puede ejecutar varias veces.'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--password', default='demo1234',
+            help='Contraseña de los usuarios de demostración (por defecto: demo1234).',
+        )
+
     @transaction.atomic
     def handle(self, *args, **options):
+        if not settings.DEBUG:
+            # Los usuarios de demostración tienen una contraseña conocida: nunca deben existir en producción.
+            raise CommandError('cargar_demo solo se ejecuta con DJANGO_DEBUG=1.')
+
         corredoras = {
             nombre: Corredora.objects.get_or_create(rut=rut, defaults={'nombre': nombre})[0]
             for rut, nombre in CORREDORAS
@@ -94,11 +115,23 @@ class Command(BaseCommand):
                     for numero, monto, factor in zip(CONCEPTOS, montos + relleno, factores + relleno)
                 )
 
+        for username, rol, corredora, is_staff in USUARIOS:
+            usuario, creado = Usuario.objects.get_or_create(
+                username=username,
+                defaults={'corredora': corredoras.get(corredora), 'is_staff': is_staff},
+            )
+            if creado:
+                usuario.set_password(options['password'])
+                usuario.save()
+                usuario.groups.add(Group.objects.get(name=rol))
+
         self.stdout.write(self.style.SUCCESS(
             f'Datos de demostración listos: {Corredora.objects.count()} corredoras, '
             f'{CalificacionBase.objects.count()} calificaciones de Bolsa y '
             f'{CalificacionLocal.objects.count()} locales.'
         ))
+        self.stdout.write('Usuarios: ' + ', '.join(f'{u} ({r})' for u, r, _, _ in USUARIOS))
+        self.stdout.write(f"Contraseña de los usuarios nuevos: {options['password']}")
 
     def instrumento(self, codigo):
         return Instrumento.objects.get_or_create(codigo=codigo, mercado=Mercado.ACCIONES)[0]
