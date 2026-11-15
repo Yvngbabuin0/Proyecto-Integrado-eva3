@@ -227,3 +227,11 @@ class RolesTests(TestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertNotContains(respuesta, 'name="is_superuser"')
         self.assertNotContains(respuesta, 'name="user_permissions"')
+
+
+class AccesoDenegadoTests(TestCase):
+    def test_administrador_ve_enlace_a_la_administracion(self):
+        self.client.force_login(crear_usuario('admin_rol', 'Administrador', is_staff=True))
+        respuesta = self.client.get(reverse('calificaciones:mantenedor'))
+        self.assertContains(respuesta, 'no pertenece a una corredora', status_code=403)
+        self.assertContains(respuesta, reverse('admin:index'), status_code=403)
