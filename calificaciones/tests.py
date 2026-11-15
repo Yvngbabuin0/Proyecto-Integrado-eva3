@@ -143,6 +143,33 @@ class MantenedorTests(TestCase):
         self.client.force_login(Usuario.objects.create_user('administrador'))
         self.assertEqual(self.listado().status_code, 403)
 
-    def test_sin_sesion_y_sin_debug_no_hay_acceso(self):
+    def test_sin_sesion_redirige_al_login(self):
         self.client.logout()
-        self.assertEqual(self.listado().status_code, 403)
+        for url in [
+            reverse('calificaciones:mantenedor'),
+            reverse('calificaciones:ingresar'),
+            reverse('calificaciones:modificar', args=[self.local_a.pk]),
+            reverse('calificaciones:eliminar', args=[self.local_a.pk]),
+        ]:
+            self.assertRedirects(self.client.get(url), f"{reverse('cuentas:login')}?next={url}")
+
+
+class LoginTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        corredora = Corredora.objects.create(rut='1-9', nombre='Corredora A')
+        Usuario.objects.create_user('analista_a', password='clave-segura-123', corredora=corredora)
+
+    def test_login_correcto_entra_al_mantenedor(self):
+        respuesta = self.client.post(reverse('cuentas:login'), {'username': 'analista_a', 'password': 'clave-segura-123'})
+        self.assertRedirects(respuesta, reverse('calificaciones:mantenedor'))
+
+    def test_login_incorrecto_muestra_error(self):
+        respuesta = self.client.post(reverse('cuentas:login'), {'username': 'analista_a', 'password': 'otra'})
+        self.assertContains(respuesta, 'Usuario o contraseña incorrectos.')
+
+    def test_logout_cierra_la_sesion(self):
+        self.client.login(username='analista_a', password='clave-segura-123')
+        respuesta = self.client.post(reverse('cuentas:logout'))
+        self.assertRedirects(respuesta, reverse('cuentas:login'))
+        self.assertEqual(self.client.get(reverse('calificaciones:mantenedor')).status_code, 302)

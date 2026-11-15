@@ -1,4 +1,5 @@
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -17,6 +18,7 @@ def con_factores(calificaciones):
     return list(calificaciones)
 
 
+@login_required
 def mantenedor(request):
     corredora = corredora_actual(request)
     locales = CalificacionLocal.objects.filter(corredora=corredora, activa=True)
@@ -56,6 +58,7 @@ def mantenedor(request):
     })
 
 
+@login_required
 def formulario(request, pk=None):
     """Ingresar (sin pk) o modificar (con pk) una calificación local de la corredora de la sesión."""
     corredora = corredora_actual(request)
@@ -84,6 +87,7 @@ def formulario(request, pk=None):
     })
 
 
+@login_required
 def baja(request, pk):
     """Baja lógica: la calificación sale del listado, pero se conserva con su histórico."""
     corredora = corredora_actual(request)
