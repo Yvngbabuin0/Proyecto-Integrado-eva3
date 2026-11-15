@@ -95,6 +95,7 @@ class CalificacionLocal(DatosCalificacion):
     class Meta(DatosCalificacion.Meta):
         verbose_name = 'calificación local'
         verbose_name_plural = 'calificaciones locales'
+        permissions = [('carga_masiva', 'Puede ejecutar la carga masiva por CSV')]
 
 
 class Detalle(models.Model):
