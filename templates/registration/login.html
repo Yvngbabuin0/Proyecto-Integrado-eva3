@@ -8,9 +8,9 @@
     <h1>Iniciar sesión</h1>
     <p>Ingresa con tu cuenta individual.</p>
 
-    {% if form.non_field_errors %}
-      <p class="alert alert--error" role="alert">Usuario o contraseña incorrectos.</p>
-    {% endif %}
+    {% for error in form.non_field_errors %}
+      <p class="alert alert--error" role="alert">{{ error }}</p>
+    {% endfor %}
 
     <form method="post" class="login-form" novalidate>
       {% csrf_token %}
