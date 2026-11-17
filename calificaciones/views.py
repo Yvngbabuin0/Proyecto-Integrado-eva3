@@ -4,6 +4,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 
+from auditoria.models import EventoAuditoria, estado_calificacion
 from cuentas.sesion import corredora_actual
 
 from .forms import CalificacionForm, DetallesForm, FiltroForm
@@ -69,9 +70,13 @@ def formulario(request, pk=None):
     corredora = corredora_actual(request)
     if pk is None:
         calificacion = CalificacionLocal(corredora=corredora, forma_ingreso=CalificacionLocal.FormaIngreso.MANUAL)
+        accion = EventoAuditoria.Accion.CREAR
+        estado_anterior = None
     else:
         # Filtrar por corredora hace que la de otra corredora responda 404, sin revelar que existe.
         calificacion = get_object_or_404(CalificacionLocal, pk=pk, corredora=corredora, activa=True)
+        accion = EventoAuditoria.Accion.MODIFICAR
+        estado_anterior = estado_calificacion(calificacion)
 
     datos = request.POST if request.method == 'POST' else None
     form = CalificacionForm(datos, instance=calificacion)
@@ -81,6 +86,15 @@ def formulario(request, pk=None):
         with transaction.atomic():
             calificacion = form.save()
             detalles.save(calificacion)
+            EventoAuditoria.objects.create(
+                accion=accion,
+                usuario=request.user,
+                usuario_nombre=request.user.get_username(),
+                corredora=corredora,
+                calificacion_id=calificacion.pk,
+                estado_anterior=estado_anterior,
+                estado_posterior=estado_calificacion(calificacion),
+            )
         messages.success(request, 'Calificación actualizada correctamente.' if pk else 'Calificación ingresada correctamente.')
         return redirect('calificaciones:mantenedor')
 
@@ -100,8 +114,25 @@ def baja(request, pk):
     calificacion = get_object_or_404(CalificacionLocal, pk=pk, corredora=corredora, activa=True)
 
     if request.method == 'POST':
-        calificacion.activa = False
-        calificacion.save(update_fields=['activa', 'modificada'])
+        with transaction.atomic():
+            calificacion = get_object_or_404(
+                CalificacionLocal.objects.select_for_update(),
+                pk=pk,
+                corredora=corredora,
+                activa=True,
+            )
+            estado_anterior = estado_calificacion(calificacion)
+            calificacion.activa = False
+            calificacion.save(update_fields=['activa', 'modificada'])
+            EventoAuditoria.objects.create(
+                accion=EventoAuditoria.Accion.BAJA,
+                usuario=request.user,
+                usuario_nombre=request.user.get_username(),
+                corredora=corredora,
+                calificacion_id=calificacion.pk,
+                estado_anterior=estado_anterior,
+                estado_posterior=estado_calificacion(calificacion),
+            )
         messages.success(request, 'Registro retirado del listado activo. El histórico se conservó.')
         return redirect('calificaciones:mantenedor')
 
