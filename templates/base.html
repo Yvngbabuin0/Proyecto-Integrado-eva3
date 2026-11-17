@@ -32,7 +32,12 @@
   </header>
   {% if user.is_authenticated %}
     <nav class="section-nav" aria-label="Navegación principal">
-      <a href="{% url 'calificaciones:mantenedor' %}" class="active">Mantenedor</a>
+      {% if perms.calificaciones.view_calificacionlocal %}
+        <a href="{% url 'calificaciones:mantenedor' %}">Mantenedor</a>
+      {% endif %}
+      {% if perms.auditoria.view_eventoauditoria %}
+        <a href="{% url 'auditoria:listado' %}">Auditoría</a>
+      {% endif %}
     </nav>
   {% endif %}
 
