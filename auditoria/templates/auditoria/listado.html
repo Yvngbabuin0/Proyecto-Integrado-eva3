@@ -44,6 +44,7 @@
             <th>Corredora</th>
             <th>Calificación</th>
             <th>Origen</th>
+            <th><span class="visually-hidden">Detalle</span></th>
           </tr>
         </thead>
         <tbody>
@@ -55,6 +56,7 @@
               <td>{{ evento.corredora.nombre }}</td>
               <td><strong>{{ evento.entidad }}</strong></td>
               <td>{{ evento.origen }}</td>
+              <td><a href="{% url 'auditoria:detalle' evento.pk %}" class="button button--small">Ver</a></td>
             </tr>
           {% endfor %}
         </tbody>

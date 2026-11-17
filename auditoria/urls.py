@@ -6,5 +6,5 @@ app_name = 'auditoria'
 
 urlpatterns = [
     path('', views.listado, name='listado'),
+    path('<int:pk>/', views.detalle, name='detalle'),
 ]
-

@@ -1,10 +1,11 @@
 from django.contrib.auth.decorators import login_required, permission_required
 from django.core.paginator import Paginator
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_GET
 
 from calificaciones.models import CalificacionLocal
 
+from .cambios import cambios, formatear
 from .forms import FiltroEventosForm
 from .models import EventoAuditoria
 
@@ -21,8 +22,7 @@ def con_entidad(eventos):
     for evento in eventos:
         evento.entidad = calificaciones.get(evento.calificacion_id, f'Calificación {evento.calificacion_id}')
         estado = evento.estado_posterior or evento.estado_anterior or {}
-        forma = estado.get('forma_ingreso')
-        evento.origen = CalificacionLocal.FormaIngreso(forma).label if forma else '—'
+        evento.origen = formatear('forma_ingreso', estado.get('forma_ingreso'))
     return eventos
 
 
@@ -53,3 +53,14 @@ def listado(request):
         'parametros': parametros.urlencode(),
     })
 
+
+@login_required
+@permission_required('auditoria.view_eventoauditoria', raise_exception=True)
+@require_GET
+def detalle(request, pk):
+    evento = get_object_or_404(EventoAuditoria.objects.select_related('corredora'), pk=pk)
+    con_entidad([evento])
+    return render(request, 'auditoria/detalle.html', {
+        'evento': evento,
+        'cambios': cambios(evento.estado_anterior, evento.estado_posterior),
+    })
