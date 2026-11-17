@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+
+{% block titulo %}Auditoría · Calificaciones Tributarias{% endblock %}
+
+{% block contenido %}
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">Trazabilidad</p>
+    <h1>Eventos de auditoría</h1>
+    <p>Registro de altas, modificaciones y bajas lógicas de calificaciones locales.</p>
+  </div>
+</div>
+
+<section class="panel">
+  {% if eventos %}
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Acción</th>
+            <th>Usuario</th>
+            <th>Corredora</th>
+            <th>Calificación</th>
+            <th>Estado anterior</th>
+            <th>Estado posterior</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for evento in eventos %}
+            <tr>
+              <td>{{ evento.fecha|date:"d-m-Y H:i:s" }}</td>
+              <td>{{ evento.get_accion_display }}</td>
+              <td>{{ evento.usuario_nombre }}</td>
+              <td>{{ evento.corredora.nombre }}</td>
+              <td>{{ evento.calificacion_id }}</td>
+              <td><pre>{{ evento.estado_anterior|pprint }}</pre></td>
+              <td><pre>{{ evento.estado_posterior|pprint }}</pre></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <h3>Sin eventos</h3>
+      <p>Todavía no se han registrado operaciones auditables.</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}
+
