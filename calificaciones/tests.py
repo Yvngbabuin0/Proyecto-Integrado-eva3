@@ -319,7 +319,9 @@ class LoginTests(TestCase):
         crear_usuario('analista_a', 'Analista Tributario', password='clave-segura-123', corredora=corredora)
 
     def test_login_correcto_entra_al_mantenedor(self):
-        respuesta = self.client.post(reverse('cuentas:login'), {'username': 'analista_a', 'password': 'clave-segura-123'})
+        respuesta = self.client.post(
+            reverse('cuentas:login'), {'username': 'analista_a', 'password': 'clave-segura-123'}, follow=True,
+        )
         self.assertRedirects(respuesta, reverse('calificaciones:mantenedor'))
 
     def test_login_incorrecto_muestra_error(self):
