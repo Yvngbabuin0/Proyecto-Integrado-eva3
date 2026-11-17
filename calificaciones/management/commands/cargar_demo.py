@@ -45,6 +45,7 @@ LOCALES = [
 # (usuario, rol, corredora o None, acceso al panel /admin/)
 USUARIOS = [
     ('analista_a', 'Analista Tributario', 'Corredora A', False),
+    ('analista_b', 'Analista Tributario', 'Corredora B', False),
     ('corredor_a', 'Corredor', 'Corredora A', False),
     ('corredor_b', 'Corredor', 'Corredora B', False),
     ('administrador', 'Administrador', None, True),
