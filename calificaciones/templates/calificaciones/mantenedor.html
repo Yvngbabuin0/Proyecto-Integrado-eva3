@@ -12,6 +12,9 @@
   {% if perms.calificaciones.add_calificacionlocal %}
     <a href="{% url 'calificaciones:ingresar' %}" class="button button--primary">+ Ingresar</a>
   {% endif %}
+  {% if perms.calificaciones.carga_masiva %}
+    <a href="{% url 'calificaciones:cargar_csv' %}" class="button">Cargar CSV</a>
+  {% endif %}
 </div>
 
 <form method="get" class="panel filters" aria-label="Filtros de búsqueda">

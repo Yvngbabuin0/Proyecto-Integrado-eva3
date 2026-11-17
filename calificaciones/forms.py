@@ -5,6 +5,16 @@ from django import forms
 from .models import CONCEPTOS, CONCEPTOS_SUMA, CalificacionBase, CalificacionLocal, ConceptoTributario, Instrumento, Mercado
 
 
+class CargaCSVForm(forms.Form):
+    archivo = forms.FileField(label='Archivo CSV')
+
+    def clean_archivo(self):
+        archivo = self.cleaned_data['archivo']
+        if not archivo.name.lower().endswith('.csv'):
+            raise forms.ValidationError('Selecciona un archivo con extensión .csv.')
+        return archivo
+
+
 class FiltroForm(forms.Form):
     ORIGENES = [('', 'Todos'), ('corredora', 'Corredora'), ('bolsa', 'Bolsa / Sistema')]
 
