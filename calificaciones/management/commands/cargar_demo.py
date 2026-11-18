@@ -104,12 +104,17 @@ class Command(BaseCommand):
                 },
             )
             if creada:
-                montos = [Decimal(m) for m in montos]
+                # factores_desde_montos recibe y devuelve {concepto: valor}.
+                montos = dict(zip(CONCEPTOS, (Decimal(m) for m in montos)))
                 factores = factores_desde_montos(montos)
-                relleno = [Decimal(0)] * 30
                 DetalleLocal.objects.bulk_create(
-                    DetalleLocal(calificacion=calificacion, concepto_id=numero, monto=monto, factor=factor)
-                    for numero, monto, factor in zip(CONCEPTOS, montos + relleno, factores + relleno)
+                    DetalleLocal(
+                        calificacion=calificacion,
+                        concepto_id=numero,
+                        monto=montos.get(numero, Decimal(0)),
+                        factor=factores.get(numero, Decimal(0)),
+                    )
+                    for numero in CONCEPTOS
                 )
 
         for username, rol, corredora, is_staff in USUARIOS:
