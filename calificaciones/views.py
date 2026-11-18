@@ -10,6 +10,7 @@ from cuentas.sesion import corredora_actual
 from .forms import CargaCSVForm, CalificacionForm, DetallesForm, FiltroForm
 from .importador_csv import ErrorCSV, cargar_calificaciones_csv
 from .models import CONCEPTOS, CalificacionBase, CalificacionLocal
+from .calculo import CONCEPTOS_CON_FORMULA, SumaCeroError, factores_desde_montos, factores_validos, suma_factores_8_a_19
 
 
 @login_required
@@ -98,10 +99,46 @@ def formulario(request, pk=None):
         estado_anterior = estado_calificacion(calificacion)
 
     datos = request.POST if request.method == 'POST' else None
+    accion_form = request.POST.get('accion') if datos else None
     form = CalificacionForm(datos, instance=calificacion)
     detalles = DetallesForm(datos, calificacion=calificacion if pk else None)
 
+    # Botón "Calcular factores": recalcular desde los montos y mostrar sin guardar nada.
+    if accion_form == 'calcular' and form.is_valid() and detalles.is_valid():
+        try:
+            factores = detalles.factores_calculados()
+        except SumaCeroError:
+            messages.error(request, 'Ingresa al menos un monto en los conceptos 8 a 19')
+            return render(request, 'calificaciones/formulario.html', {
+                'corredora': corredora,
+                'calificacion': calificacion if pk else None,
+                'form': form,
+                'detalles': detalles,
+            })
+        else:
+            detalles.rellenar_factores(factores)
+            messages.success(request, 'Factores calculados con los montos ingresados. Puedes editarlos antes de grabar.')
+            return render(request, 'calificaciones/formulario.html', {
+                'corredora': corredora,
+                'calificacion': calificacion if pk else None,
+                'form': form,
+                'detalles': detalles,
+                'suma_factores_8_a_19': detalles.suma_mostrada(),
+            })
+
     if datos is not None and form.is_valid() and detalles.is_valid():
+        # Si los factores del formulario son exactamente los calculados desde los montos,
+        # se acepta la tolerancia por redondeo; si el usuario los editó o no hay montos,
+        # la validación es estricta.
+        if not detalles.factores_iguales_a_calculados():
+            if not factores_validos(detalles.factores(), estricto=True):
+                messages.error(request, 'La suma de los factores 8 a 19 no puede superar 1')
+                return render(request, 'calificaciones/formulario.html', {
+                    'corredora': corredora,
+                    'calificacion': calificacion if pk else None,
+                    'form': form,
+                    'detalles': detalles,
+                })
         with transaction.atomic():
             calificacion = form.save()
             detalles.save(calificacion)
