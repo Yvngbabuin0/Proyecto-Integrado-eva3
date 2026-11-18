@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django import forms
 
+from .calculo import CONCEPTOS_CON_FORMULA, CONCEPTOS_FACTORES, SumaCeroError, factores_desde_montos
 from .models import CONCEPTOS, CONCEPTOS_SUMA, CalificacionBase, CalificacionLocal, ConceptoTributario, Instrumento, Mercado
 
 
@@ -98,6 +99,8 @@ class DetallesForm(forms.Form):
 
     def __init__(self, *args, calificacion=None, **kwargs):
         super().__init__(*args, **kwargs)
+        # request.POST is immutable; make a mutable copy so rellenar_factores can modify it.
+        self.data = self.data.copy()
         self.conceptos = list(ConceptoTributario.objects.filter(numero__in=CONCEPTOS))
         actuales = {d.concepto_id: d for d in calificacion.detalles.all()} if calificacion else {}
 
@@ -130,3 +133,59 @@ class DetallesForm(forms.Form):
             )
             for concepto in self.conceptos
         )
+
+    def factores(self):
+        """Factores 8 a 37 del formulario, ya limpios, como Decimals.
+
+        Incluye los 4 factores de ingreso directo (34 a 37) para que la
+        validación de rango individual los cubra también.
+        """
+        return {n: self.cleaned_data.get(f'factor_{n}') or Decimal(0) for n in CONCEPTOS_FACTORES}
+
+    def montos(self):
+        """Montos 8 a 19 del formulario, ya limpios, como Decimals."""
+        return {n: self.cleaned_data.get(f'monto_{n}') or Decimal(0) for n in CONCEPTOS_SUMA}
+
+    def factores_calculados(self):
+        """Factores 8 a 33 que se obtendrían de recalcular desde los montos."""
+        return factores_desde_montos(self.montos())
+
+    def factores_8_a_19(self):
+        """Factores 8 a 19 del formulario, ya limpios, como Decimals."""
+        return {n: self.cleaned_data.get(f'factor_{n}') or Decimal(0) for n in CONCEPTOS_SUMA}
+
+    def factores_iguales_a_calculados(self):
+        """True si los factores 8 a 33 del formulario son exactamente los calculados.
+
+        Los factores 34 a 37 son de ingreso directo y no se calculan, así que no
+        entran en la comparación. ``factores_calculados`` lanza
+        :class:`SumaCeroError` cuando no hay montos, así que aquí se captura y se
+        devuelve ``False`` (no hay factores calculados con los que comparar).
+        """
+        try:
+            calculados = self.factores_calculados()
+        except SumaCeroError:
+            return False
+        return {n: self.cleaned_data.get(f'factor_{n}') or Decimal(0) for n in CONCEPTOS_CON_FORMULA} == calculados
+
+    def rellenar_factores(self, factores):
+        """Rellena los factores 8 a 33 en el POST para que el formulario los muestre.
+
+        Usa ``f'{valor:.8f}'`` porque ``str(Decimal('0E-8'))`` da ``'0E-8'``
+        (notación científica) en lugar de ``'0.00000000'``.
+        """
+        for numero, valor in factores.items():
+            self.data[f'factor_{numero}'] = f'{valor:.8f}'.replace('.', ',')
+
+    def limpiar_factores(self):
+        """Borra los factores 8 a 33 del POST, dejando solo los montos."""
+        for numero in CONCEPTOS_CON_FORMULA:
+            self.data.pop(f'factor_{numero}', None)
+
+    def factores_mostrados(self):
+        """Factores 8 a 33 que se están mostrando en pantalla (limpios o calculados)."""
+        return {n: self.cleaned_data.get(f'factor_{n}') or Decimal(0) for n in CONCEPTOS_CON_FORMULA}
+
+    def suma_mostrada(self):
+        """Suma de los factores 8 a 19 que se están mostrando en pantalla."""
+        return sum((self.factores_mostrados()[n] for n in CONCEPTOS_SUMA), Decimal(0))
