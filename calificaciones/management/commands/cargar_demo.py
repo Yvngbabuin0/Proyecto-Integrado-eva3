@@ -6,6 +6,7 @@ from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from calificaciones.calculo import factores_desde_montos
 from calificaciones.models import (
     CONCEPTOS,
     CalificacionBase,
@@ -51,11 +52,6 @@ USUARIOS = [
     ('administrador', 'Administrador', None, True),
     ('auditor', 'Auditor', None, False),
 ]
-
-
-def factores_desde_montos(montos):
-    total = sum(montos, Decimal(0))
-    return [(monto / total).quantize(Decimal('0.00000001')) for monto in montos]
 
 
 class Command(BaseCommand):
