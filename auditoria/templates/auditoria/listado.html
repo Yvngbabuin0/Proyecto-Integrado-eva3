@@ -7,46 +7,78 @@
   <div>
     <p class="eyebrow">Trazabilidad</p>
     <h1>Eventos de auditoría</h1>
-    <p>Registro de altas, modificaciones y bajas lógicas de calificaciones locales.</p>
+    <p>Registro de altas, modificaciones y bajas lógicas de calificaciones locales. Solo lectura.</p>
   </div>
 </div>
 
+<form method="get" class="panel filters" aria-label="Filtros de eventos">
+  {% for campo in filtro %}
+    <label class="field">
+      <span>{{ campo.label }}</span>
+      {{ campo }}
+    </label>
+  {% endfor %}
+  <div class="filter-actions">
+    <button type="submit" class="button button--primary">Filtrar</button>
+    <a href="{% url 'auditoria:listado' %}" class="button button--ghost">Limpiar</a>
+  </div>
+</form>
+
 <section class="panel">
+  <div class="table-toolbar">
+    <div>
+      <h2>Operaciones</h2>
+      <span>{{ pagina.paginator.count }} evento{{ pagina.paginator.count|pluralize }}</span>
+    </div>
+    <span class="badge badge--teal">Solo lectura</span>
+  </div>
+
   {% if eventos %}
     <div class="table-scroll">
       <table>
         <thead>
           <tr>
-            <th>Fecha</th>
+            <th>Fecha / hora</th>
             <th>Acción</th>
             <th>Usuario</th>
             <th>Corredora</th>
             <th>Calificación</th>
-            <th>Estado anterior</th>
-            <th>Estado posterior</th>
+            <th>Origen</th>
+            <th><span class="visually-hidden">Detalle</span></th>
           </tr>
         </thead>
         <tbody>
           {% for evento in eventos %}
             <tr>
-              <td>{{ evento.fecha|date:"d-m-Y H:i:s" }}</td>
-              <td>{{ evento.get_accion_display }}</td>
+              <td>{{ evento.fecha|date:"d-m-Y H:i" }}</td>
+              <td><span class="badge badge--{{ evento.accion|lower }}">{{ evento.get_accion_display }}</span></td>
               <td>{{ evento.usuario_nombre }}</td>
               <td>{{ evento.corredora.nombre }}</td>
-              <td>{{ evento.calificacion_id }}</td>
-              <td><pre>{{ evento.estado_anterior|pprint }}</pre></td>
-              <td><pre>{{ evento.estado_posterior|pprint }}</pre></td>
+              <td><strong>{{ evento.entidad }}</strong></td>
+              <td>{{ evento.origen }}</td>
+              <td><a href="{% url 'auditoria:detalle' evento.pk %}" class="button button--small">Ver</a></td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+
+    {% if pagina.has_other_pages %}
+      <nav class="table-footer pagination" aria-label="Páginas">
+        {% if pagina.has_previous %}
+          <a href="?{% if parametros %}{{ parametros }}&{% endif %}pagina={{ pagina.previous_page_number }}" class="button button--small">← Anterior</a>
+        {% endif %}
+        <span>Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span>
+        {% if pagina.has_next %}
+          <a href="?{% if parametros %}{{ parametros }}&{% endif %}pagina={{ pagina.next_page_number }}" class="button button--small">Siguiente →</a>
+        {% endif %}
+      </nav>
+    {% endif %}
   {% else %}
     <div class="empty-state">
       <h3>Sin eventos</h3>
-      <p>Todavía no se han registrado operaciones auditables.</p>
+      <p>{% if filtro.has_changed %}No hay eventos con los filtros aplicados.{% else %}Todavía no se han registrado operaciones auditables.{% endif %}</p>
     </div>
   {% endif %}
 </section>
 {% endblock %}
-

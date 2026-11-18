@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+
+{% block titulo %}Evento {{ evento.pk }} · Auditoría{% endblock %}
+
+{% block contenido %}
+<a href="{% url 'auditoria:listado' %}" class="back-link">← Volver al registro de operaciones</a>
+
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">Detalle de operación</p>
+    <h1>{{ evento.get_accion_display }} · {{ evento.entidad }}</h1>
+    <p>Evento de solo lectura.</p>
+  </div>
+  <span class="badge badge--{{ evento.accion|lower }}">{{ evento.get_accion_display }}</span>
+</div>
+
+<section class="panel form-section">
+  <div class="record-summary">
+    <div><span>Fecha y hora</span><strong>{{ evento.fecha|date:"d-m-Y H:i:s" }}</strong></div>
+    <div><span>Usuario</span><strong>{{ evento.usuario_nombre }}</strong></div>
+    <div><span>Corredora</span><strong>{{ evento.corredora.nombre }}</strong></div>
+    <div><span>Calificación</span><strong>{{ evento.entidad }}</strong></div>
+    <div><span>Origen</span><strong>{{ evento.origen }}</strong></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="table-toolbar">
+    <div>
+      <h2>{% if evento.accion == 'CREAR' %}Datos registrados{% else %}Qué cambió{% endif %}</h2>
+      <span>{{ cambios|length }} campo{{ cambios|length|pluralize }}</span>
+    </div>
+  </div>
+  {% if cambios %}
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Campo</th>
+            {% if evento.accion != 'CREAR' %}<th class="number">Antes</th>{% endif %}
+            <th class="number">{% if evento.accion == 'CREAR' %}Valor{% else %}Después{% endif %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for campo, antes, despues in cambios %}
+            <tr>
+              <td>{{ campo }}</td>
+              {% if evento.accion != 'CREAR' %}<td class="number text-muted">{{ antes }}</td>{% endif %}
+              <td class="number"><strong>{{ despues }}</strong></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <p>La operación se guardó sin cambios en los datos.</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

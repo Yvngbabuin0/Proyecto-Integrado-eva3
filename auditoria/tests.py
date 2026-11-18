@@ -176,3 +176,72 @@ class AccesoAuditoriaTests(TestCase):
                 respuesta = self.client.get(reverse('auditoria:listado'))
                 self.assertEqual(respuesta.status_code, 403)
 
+
+
+class ConsultaLegibleTests(TestCase):
+    """El listado y el detalle muestran la información de forma legible."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.corredora_a = Corredora.objects.create(rut='1-9', nombre='Corredora A')
+        cls.corredora_b = Corredora.objects.create(rut='2-7', nombre='Corredora B')
+        cls.analista_a = crear_usuario('analista_a', 'Analista Tributario', corredora=cls.corredora_a)
+        cls.analista_b = crear_usuario('analista_b', 'Analista Tributario', corredora=cls.corredora_b)
+        cls.auditor = crear_usuario('auditor', 'Auditor')
+
+    def operar(self, usuario, **cambios):
+        self.client.force_login(usuario)
+        self.client.post(reverse('calificaciones:ingresar'), datos_formulario(**cambios))
+        return CalificacionLocal.objects.latest('pk')
+
+    def test_listado_muestra_la_calificacion_y_no_el_estado_completo(self):
+        self.operar(self.analista_a)
+        self.client.force_login(self.auditor)
+        respuesta = self.client.get(reverse('auditoria:listado'))
+        self.assertContains(respuesta, 'NUEVO · evento 100000900')
+        self.assertContains(respuesta, 'Creación')
+        self.assertNotContains(respuesta, 'concepto_id')
+
+    def test_filtros_por_accion_y_corredora(self):
+        calificacion = self.operar(self.analista_a)
+        self.client.post(reverse('calificaciones:eliminar', args=[calificacion.pk]))
+        self.operar(self.analista_b, codigo_instrumento='OTRO')
+        self.client.force_login(self.auditor)
+
+        por_accion = self.client.get(reverse('auditoria:listado'), {'accion': 'BAJA'})
+        self.assertEqual(por_accion.context['pagina'].paginator.count, 1)
+
+        por_corredora = self.client.get(reverse('auditoria:listado'), {'corredora': self.corredora_b.pk})
+        self.assertEqual(por_corredora.context['pagina'].paginator.count, 1)
+        self.assertContains(por_corredora, 'OTRO · evento 100000900')
+
+    def test_detalle_de_modificacion_muestra_solo_lo_que_cambio(self):
+        calificacion = self.operar(self.analista_a)
+        self.client.post(
+            reverse('calificaciones:modificar', args=[calificacion.pk]),
+            datos_formulario(descripcion='Descripción nueva', factor_8='0,5'),
+        )
+        evento = EventoAuditoria.objects.get(accion=EventoAuditoria.Accion.MODIFICAR)
+        self.client.force_login(self.auditor)
+        respuesta = self.client.get(reverse('auditoria:detalle', args=[evento.pk]))
+
+        self.assertEqual(
+            [campo for campo, _, _ in respuesta.context['cambios']],
+            ['Descripción', 'Factor 8'],
+        )
+        self.assertContains(respuesta, 'Calificación auditada')
+        self.assertContains(respuesta, 'Descripción nueva')
+        self.assertContains(respuesta, '0,50000000')
+
+    def test_detalle_de_baja_muestra_el_cambio_de_estado(self):
+        calificacion = self.operar(self.analista_a)
+        self.client.post(reverse('calificaciones:eliminar', args=[calificacion.pk]))
+        evento = EventoAuditoria.objects.get(accion=EventoAuditoria.Accion.BAJA)
+        self.client.force_login(self.auditor)
+        respuesta = self.client.get(reverse('auditoria:detalle', args=[evento.pk]))
+        self.assertEqual(respuesta.context['cambios'], [('Activa', 'Sí', 'No')])
+
+    def test_detalle_solo_para_quien_puede_ver_la_auditoria(self):
+        self.operar(self.analista_a)
+        evento = EventoAuditoria.objects.get()
+        self.assertEqual(self.client.get(reverse('auditoria:detalle', args=[evento.pk])).status_code, 403)
