@@ -54,7 +54,8 @@ INSTALLED_APPS = [
 AUTH_USER_MODEL = 'cuentas.Usuario'
 
 LOGIN_URL = 'cuentas:login'
-LOGIN_REDIRECT_URL = 'calificaciones:mantenedor'
+# Cada rol llega a su sección (cuentas.views.inicio).
+LOGIN_REDIRECT_URL = 'cuentas:inicio'
 LOGOUT_REDIRECT_URL = 'cuentas:login'
 
 # Sesiones: se cierran al cerrar el navegador y duran como máximo 8 horas.

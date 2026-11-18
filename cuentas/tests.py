@@ -1,11 +1,12 @@
 from unittest import mock
 
+from django.contrib.auth.models import Group
 from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 
 from .forms import MAX_INTENTOS
-from .models import Usuario
+from .models import Corredora, Usuario
 
 
 class LimiteIntentosTests(TestCase):
@@ -20,8 +21,8 @@ class LimiteIntentosTests(TestCase):
         return self.client.post(reverse('cuentas:login'), {'username': username, 'password': password})
 
     def assertEntra(self, respuesta):
-        # Solo se revisa que el login redirija; el usuario de prueba no tiene rol para ver el mantenedor.
-        self.assertRedirects(respuesta, reverse('calificaciones:mantenedor'), fetch_redirect_response=False)
+        # Solo se revisa que el login redirija; el usuario de prueba no tiene rol.
+        self.assertRedirects(respuesta, reverse('cuentas:inicio'), fetch_redirect_response=False)
 
     def fallar(self, veces, username='analista_a'):
         for _ in range(veces):
@@ -59,3 +60,36 @@ class LimiteIntentosTests(TestCase):
         with mock.patch('cuentas.forms.cache.get', return_value=0):
             # Simula que pasaron los 15 minutos y la marca expiró.
             self.assertEntra(self.login('clave-segura-123'))
+
+
+class InicioPorRolTests(TestCase):
+    def entrar(self, rol=None, **campos):
+        usuario = Usuario.objects.create_user('usuario', **campos)
+        if rol:
+            usuario.groups.add(Group.objects.get(name=rol))
+        self.client.force_login(usuario)
+        return self.client.get(reverse('cuentas:inicio'))
+
+    def test_corredor_y_analista_van_al_mantenedor(self):
+        corredora = Corredora.objects.create(rut='1-9', nombre='Corredora A')
+        self.assertRedirects(
+            self.entrar('Analista Tributario', corredora=corredora),
+            reverse('calificaciones:mantenedor'),
+        )
+
+    def test_auditor_va_a_la_auditoria(self):
+        self.assertRedirects(self.entrar('Auditor'), reverse('auditoria:listado'))
+
+    def test_administrador_va_a_la_administracion(self):
+        self.assertRedirects(self.entrar('Administrador', is_staff=True), reverse('admin:index'))
+
+    def test_usuario_sin_rol_ve_acceso_denegado(self):
+        self.assertEqual(self.entrar().status_code, 403)
+
+    def test_respeta_la_pagina_que_se_queria_abrir(self):
+        Usuario.objects.create_user('auditor', password='clave-segura-123').groups.add(Group.objects.get(name='Auditor'))
+        url = reverse('auditoria:listado')
+        respuesta = self.client.post(
+            f"{reverse('cuentas:login')}?next={url}", {'username': 'auditor', 'password': 'clave-segura-123'},
+        )
+        self.assertRedirects(respuesta, url)

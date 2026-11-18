@@ -18,6 +18,9 @@ from decimal import Decimal, ROUND_HALF_UP
 CONCEPTOS_CON_FORMULA = range(8, 34)
 # Conceptos cuyos montos se suman para el denominador (8 a 19).
 CONCEPTOS_SUMA = range(8, 20)
+# Rango completo de factores del certificado (8 a 37): incluye los 4 de ingreso
+# directo que no tienen fórmula pero sí validación de rango individual.
+CONCEPTOS_FACTORES = range(8, 38)
 # Cada factor debe ser <= 1.
 FACTOR_MAXIMO = Decimal(1)
 # Decimales a los que se redondea cada factor.
@@ -53,13 +56,14 @@ def _suma_montos(montos: dict) -> Decimal:
 
 
 def factores_desde_montos(montos: dict) -> dict:
-    """Calcula los factores 8 a 37 a partir de un monto por concepto.
+    """Calcula los factores 8 a 33 a partir de un monto por concepto.
 
     ``montos`` es un mapeo ``numero_de_concepto -> Decimal`` (o lo que se
     pueda convertir a él); los conceptos ausentes se tratan como monto 0.
 
-    Los factores 8 a 33 se calculan como ``monto / suma(8 a 19)`` y los
-    34 a 37 se les asigna :data:`FACTORES_SIN_FORMULA_DEFAULT`.
+    Los factores 8 a 33 se calculan como ``monto / suma(8 a 19)``. Los
+    conceptos 34 a 37 no tienen fórmula (ingreso directo) y no se devuelven
+    aquí; véase :data:`FACTORES_SIN_FORMULA_DEFAULT`.
 
     Lanza :class:`SumaCeroError` si la suma de los montos 8 a 19 es 0.
     """
@@ -73,8 +77,6 @@ def factores_desde_montos(montos: dict) -> dict:
     for numero in CONCEPTOS_CON_FORMULA:
         monto = montos.get(numero, Decimal(0))
         factores[numero] = _redondear(monto / suma)
-    for numero in range(34, 38):
-        factores[numero] = FACTORES_SIN_FORMULA_DEFAULT
     return factores
 
 
@@ -105,7 +107,9 @@ def factores_validos(factores: dict, *, estricto=False) -> bool:
     que se usa ``estricto=True``: la suma debe ser <= 1 sin tolerancia.
     """
     tolerancia = 0 if estricto else TOLERANCIA_SUMA_POR_DEFECTO
-    for numero in CONCEPTOS_CON_FORMULA:
+    # Rango individual aplica a todos los factores 8 a 37, incluidos los de
+    # ingreso directo (34 a 37) que no tienen fórmula pero sí validación de rango.
+    for numero in CONCEPTOS_FACTORES:
         if factores.get(numero, Decimal(0)) > FACTOR_MAXIMO:
             return False
     if suma_factores_8_a_19(factores) > SUMA_FACTORES_MAXIMA + tolerancia:
