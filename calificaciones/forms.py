@@ -175,7 +175,7 @@ class DetallesForm(forms.Form):
         (notación científica) en lugar de ``'0.00000000'``.
         """
         for numero, valor in factores.items():
-            self.data[f'factor_{numero}'] = str(valor).replace('.', ',')
+            self.data[f'factor_{numero}'] = f'{valor:.8f}'.replace('.', ',')
 
     def limpiar_factores(self):
         """Borra los factores 8 a 33 del POST, dejando solo los montos."""
