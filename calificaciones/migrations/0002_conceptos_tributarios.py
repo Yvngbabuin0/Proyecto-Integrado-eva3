@@ -1,7 +1,7 @@
 from django.db import migrations
 
 # Catálogo de los 30 conceptos (8–37), tomado del prototipo alineado con el Excel del cliente.
-# Ojo: 28 y 33 tienen el mismo nombre ("Crédito por IPE"); falta confirmarlo con el cliente.
+# Los nombres de 28 y 33 se precisan en la migración 0004 (según el HDU del cliente).
 CONCEPTOS = {
     8: 'Con crédito por IDPC generados a contar del 01.01.2017',
     9: 'Con crédito por IDPC acumulados hasta el 31.12.2016',
