@@ -62,7 +62,10 @@
           <tbody>
             {% for concepto, monto, factor, en_suma in detalles.filas %}
               {% if concepto.numero == 20 %}
-                <tr class="separador"><td colspan="4">Conceptos 20 a 37: no participan en la suma de factores 8 a 19</td></tr>
+                <tr class="separador"><td colspan="4">Conceptos 20 a 33: se calculan con la fórmula HDU (monto / Σ montos 8–19). No participan en la suma de factores 8 a 19.</td></tr>
+              {% endif %}
+              {% if concepto.numero == 34 %}
+                <tr class="separador"><td colspan="4">Conceptos 34 a 37: no tienen fórmula HDU. Su factor se ingresa manualmente (0 a 1, 8 decimales).</td></tr>
               {% endif %}
               <tr class="{% if monto.errors or factor.errors %}concept-row--error{% endif %}">
                 <td>{{ concepto.numero }}</td>

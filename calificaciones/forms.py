@@ -2,8 +2,8 @@ from decimal import Decimal
 
 from django import forms
 
-from .calculo import CONCEPTOS_CON_FORMULA, CONCEPTOS_FACTORES, SumaCeroError, factores_desde_montos
-from .models import CONCEPTOS, CONCEPTOS_SUMA, CalificacionBase, CalificacionLocal, ConceptoTributario, Instrumento, Mercado
+from .calculo import CONCEPTOS_CON_FORMULA, CONCEPTOS_FACTORES, CONCEPTOS_SUMA, SumaCeroError, factores_desde_montos
+from .models import CONCEPTOS, CalificacionBase, CalificacionLocal, ConceptoTributario, Instrumento, Mercado
 
 
 class CargaCSVForm(forms.Form):
@@ -143,8 +143,11 @@ class DetallesForm(forms.Form):
         return {n: self.cleaned_data.get(f'factor_{n}') or Decimal(0) for n in CONCEPTOS_FACTORES}
 
     def montos(self):
-        """Montos 8 a 19 del formulario, ya limpios, como Decimals."""
-        return {n: self.cleaned_data.get(f'monto_{n}') or Decimal(0) for n in CONCEPTOS_SUMA}
+        """Montos 8 a 37 del formulario, ya limpios, como Decimals.
+
+        El cálculo HDU usa montos de 8 a 37, aunque el denominador sea solo 8-19.
+        """
+        return {n: self.cleaned_data.get(f'monto_{n}') or Decimal(0) for n in CONCEPTOS_FACTORES}
 
     def factores_calculados(self):
         """Factores 8 a 33 que se obtendrían de recalcular desde los montos."""
