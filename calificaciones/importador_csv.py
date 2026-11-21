@@ -287,13 +287,13 @@ CAMPOS_ACTUALIZABLES = (
 )
 
 
-def guardar_registros(registros, corredora, usuario=None):
+def guardar_registros(registros, corredora, usuario=None, lote=None):
     """Guarda los registros ya leídos en una sola transacción: todo o nada.
 
     Las filas cuya llave funcional ya existe como calificación activa de la corredora la
     actualizan (datos y los 30 detalles); las demás crean una calificación nueva.
     Si se indica ``usuario``, cada fila deja un evento de auditoría (creación o modificación)
-    dentro de la misma transacción. Devuelve ``{'nuevas': n, 'actualizadas': m}``.
+    dentro de la misma transacción, ligado a ``lote`` si se indica. Devuelve ``{'nuevas': n, 'actualizadas': m}``.
     """
     codigos = {registro['codigo'] for registro in registros}
     mercados = {registro['mercado'] for registro in registros}
@@ -392,6 +392,7 @@ def guardar_registros(registros, corredora, usuario=None):
                     usuario_nombre=usuario.get_username(),
                     corredora=corredora,
                     calificacion_id=calificacion.pk,
+                    lote=lote,
                     estado_anterior=anteriores.get(calificacion.pk),
                     estado_posterior=estado_calificacion(calificacion, detalles),
                 ))
