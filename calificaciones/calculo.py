@@ -12,7 +12,7 @@ y se aplica a los conceptos 8 a 33. Los conceptos 34 a 37 no tienen fórmula
 (veáse :data:`FACTORES_SIN_FORMULA_DEFAULT`).
 """
 
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 
 # Conceptos cuyos factores se calculan con la fórmula del HDU (8 a 33).
 CONCEPTOS_CON_FORMULA = range(8, 34)
@@ -27,12 +27,6 @@ FACTOR_MAXIMO = Decimal(1)
 DECIMALES_FACTOR = Decimal('0.00000001')
 # Suma máxima permitida de los factores 8 a 19.
 SUMA_FACTORES_MAXIMA = Decimal(1)
-# Máximo error acumulado al redondear los 12 factores de la suma (8 a 19).
-# Cada factor se redondea a 8 decimales con ROUND_HALF_UP, así que su error
-# es como máximo 0,000000005 (media unidad del último decimal). Como la suma
-# lleva 12 factores, el error total puede llegar a 12 x 0,000000005 = 0,00000006.
-# Por ejemplo, seis montos iguales dan factor 0,16666667 y suman 1,00000002.
-TOLERANCIA_SUMA_POR_DEFECTO = Decimal('0.00000006')
 
 # Los conceptos 34 a 37 no tienen fórmula en el HDU. Por defecto se les asigna
 # factor 0; cambiar esta constante (por ejemplo a ``Decimal('0.5')``) modifica
@@ -77,7 +71,28 @@ def factores_desde_montos(montos: dict) -> dict:
     for numero in CONCEPTOS_CON_FORMULA:
         monto = montos.get(numero, Decimal(0))
         factores[numero] = _redondear(monto / suma)
+    factores.update(_repartir_suma(montos, suma))
     return factores
+
+
+def _repartir_suma(montos: dict, suma: Decimal) -> dict:
+    """Factores 8 a 19 redondeados a 8 decimales de modo que sumen exactamente 1.
+
+    Redondear cada factor por separado puede hacer que la suma pase de 1: con
+    seis montos iguales, cada factor queda en 0,16666667 y suman 1,00000002.
+    Para evitarlo se usa el método del mayor resto: cada factor se trunca a 8
+    decimales y las unidades del último decimal que faltan para llegar a 1 se
+    entregan a los factores con mayor parte truncada (si empatan, al concepto
+    de número menor). Cuando el redondeo normal ya suma 1, como en el ejemplo
+    del HDU, el resultado es el mismo que con ``ROUND_HALF_UP``.
+    """
+    exactos = {n: montos.get(n, Decimal(0)) / suma for n in CONCEPTOS_SUMA}
+    truncados = {n: valor.quantize(DECIMALES_FACTOR, rounding=ROUND_DOWN) for n, valor in exactos.items()}
+    faltantes = int((SUMA_FACTORES_MAXIMA - sum(truncados.values())) / DECIMALES_FACTOR)
+    por_resto = sorted(CONCEPTOS_SUMA, key=lambda n: (-(exactos[n] - truncados[n]), n))
+    for numero in por_resto[:faltantes]:
+        truncados[numero] += DECIMALES_FACTOR
+    return truncados
 
 
 def suma_factores_8_a_19(factores: dict) -> Decimal:
@@ -85,33 +100,17 @@ def suma_factores_8_a_19(factores: dict) -> Decimal:
     return sum((factores.get(n, Decimal(0)) for n in CONCEPTOS_SUMA), Decimal(0))
 
 
-def factores_validos(factores: dict, *, estricto=False) -> bool:
-    """Valida las reglas de los factores calculados.
+def factores_validos(factores: dict) -> bool:
+    """Valida las reglas de los factores.
 
-    Cada factor 8 a 33 debe ser <= 1 y la suma de los factores 8 a 19 debe ser
-    <= 1 (más la tolerancia que corresponda).
-
-    **Sobre la suma y el redondeo.** La suma de los factores *exactos*
-    (monto / Σmontos, sin redondear) es exactamente 1, porque cada monto es una
-    fracción de la misma suma. Pero cuando redondeamos cada factor a 8
-    decimales con ``ROUND_HALF_UP``, ese redondeo puede sumar o restar una
-    unidades del último decimal por factor. Con seis montos iguales, cada
-    factor exacto es 0,16666666666… y al redondear queda 0,16666667: seis veces
-    0,16666667 suman 1,00000002, que supera 1. Validar la suma contra los
-    factores redondeados sin tolerancia daría un falso negativo.
-
-    Por eso la validación de la suma permite una tolerancia por defecto de
-    :data:`TOLERANCIA_SUMA_POR_DEFECTO` (12 factores x 0,000000005 = 0,00000006),
-    que cubre el peor caso de acumulación de errores de redondeo. Cuando los
-    factores se ingresan a mano (el usuario los escribe) no hay redondeo, así
-    que se usa ``estricto=True``: la suma debe ser <= 1 sin tolerancia.
+    Cada factor 8 a 37 debe ser <= 1 y la suma de los factores 8 a 19 debe ser
+    <= 1, sin tolerancia: si la supera, se bloquea. Los factores que entrega
+    :func:`factores_desde_montos` ya suman exactamente 1 (véase
+    :func:`_repartir_suma`), así que pasan esta validación sin excepciones.
     """
-    tolerancia = 0 if estricto else TOLERANCIA_SUMA_POR_DEFECTO
     # Rango individual aplica a todos los factores 8 a 37, incluidos los de
     # ingreso directo (34 a 37) que no tienen fórmula pero sí validación de rango.
     for numero in CONCEPTOS_FACTORES:
         if factores.get(numero, Decimal(0)) > FACTOR_MAXIMO:
             return False
-    if suma_factores_8_a_19(factores) > SUMA_FACTORES_MAXIMA + tolerancia:
-        return False
-    return True
+    return suma_factores_8_a_19(factores) <= SUMA_FACTORES_MAXIMA

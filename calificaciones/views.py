@@ -7,28 +7,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from auditoria.models import EventoAuditoria, estado_calificacion
 from cuentas.sesion import corredora_actual
 
-from .forms import CargaCSVForm, CalificacionForm, DetallesForm, FiltroForm
-from .importador_csv import ErrorCSV, cargar_calificaciones_csv
+from .forms import CalificacionForm, DetallesForm, FiltroForm
 from .models import CONCEPTOS, CalificacionBase, CalificacionLocal
 from .calculo import CONCEPTOS_CON_FORMULA, SumaCeroError, factores_desde_montos, factores_validos, suma_factores_8_a_19
-
-
-@login_required
-@permission_required('calificaciones.carga_masiva', raise_exception=True)
-def cargar_csv(request):
-    datos = request.POST if request.method == 'POST' else None
-    archivos = request.FILES if request.method == 'POST' else None
-    form = CargaCSVForm(datos, archivos)
-    if request.method == 'POST' and form.is_valid():
-        try:
-            total = cargar_calificaciones_csv(form.cleaned_data['archivo'], corredora_actual(request))
-        except ErrorCSV as error:
-            messages.error(request, str(error))
-        else:
-            messages.success(request, f'Se cargaron {total} calificaciones correctamente.')
-            return redirect('calificaciones:mantenedor')
-
-    return render(request, 'calificaciones/cargar_csv.html', {'form': form})
 
 
 def con_factores(calificaciones):
@@ -127,18 +108,15 @@ def formulario(request, pk=None):
             })
 
     if datos is not None and form.is_valid() and detalles.is_valid():
-        # Si los factores del formulario son exactamente los calculados desde los montos,
-        # se acepta la tolerancia por redondeo; si el usuario los editó o no hay montos,
-        # la validación es estricta.
-        if not detalles.factores_iguales_a_calculados():
-            if not factores_validos(detalles.factores(), estricto=True):
-                messages.error(request, 'La suma de los factores 8 a 19 no puede superar 1')
-                return render(request, 'calificaciones/formulario.html', {
-                    'corredora': corredora,
-                    'calificacion': calificacion if pk else None,
-                    'form': form,
-                    'detalles': detalles,
-                })
+        # La suma de los factores 8 a 19 nunca puede superar 1, se hayan calculado o escrito a mano.
+        if not factores_validos(detalles.factores()):
+            messages.error(request, 'La suma de los factores 8 a 19 no puede superar 1')
+            return render(request, 'calificaciones/formulario.html', {
+                'corredora': corredora,
+                'calificacion': calificacion if pk else None,
+                'form': form,
+                'detalles': detalles,
+            })
         with transaction.atomic():
             calificacion = form.save()
             detalles.save(calificacion)

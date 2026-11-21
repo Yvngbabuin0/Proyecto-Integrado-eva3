@@ -10,6 +10,8 @@ class EventoAuditoria(models.Model):
         CREAR = 'CREAR', 'Creación'
         MODIFICAR = 'MODIFICAR', 'Modificación'
         BAJA = 'BAJA', 'Baja lógica'
+        CARGA = 'CARGA', 'Carga CSV'
+        RECHAZO = 'RECHAZO', 'Carga rechazada'
 
     accion = models.CharField(max_length=10, choices=Accion.choices)
     fecha = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -24,22 +26,43 @@ class EventoAuditoria(models.Model):
         on_delete=models.PROTECT,
         related_name='eventos_auditoria',
     )
-    calificacion_id = models.PositiveBigIntegerField(db_index=True)
+    # Vacío en los eventos de un lote completo (carga o rechazo), que no afectan a una sola calificación.
+    calificacion_id = models.PositiveBigIntegerField(db_index=True, null=True, blank=True)
+    lote = models.ForeignKey(
+        'calificaciones.LoteCarga',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='eventos',
+    )
     estado_anterior = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
     estado_posterior = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
 
     class Meta:
         ordering = ['-fecha', '-pk']
         default_permissions = ('view',)
+        permissions = [
+            ('ver_todas_las_corredoras', 'Puede ver los eventos de todas las corredoras'),
+        ]
         verbose_name = 'evento de auditoría'
         verbose_name_plural = 'eventos de auditoría'
 
     def __str__(self):
+        if self.calificacion_id is None:
+            return f'{self.get_accion_display()} · lote {self.lote_id}'
         return f'{self.get_accion_display()} · calificación {self.calificacion_id}'
 
 
-def estado_calificacion(calificacion):
-    """Representación estable de una calificación local y sus detalles."""
+def estado_calificacion(calificacion, detalles=None):
+    """Representación estable de una calificación local y sus detalles.
+
+    ``detalles`` permite pasar los detalles ya cargados (por ejemplo en la carga CSV, para
+    no hacer una consulta por fila); si se omite, se leen de la base de datos.
+    """
+    if detalles is None:
+        detalles = calificacion.detalles.order_by('concepto_id')
+    else:
+        detalles = sorted(detalles, key=lambda detalle: detalle.concepto_id)
     return {
         'instrumento_id': calificacion.instrumento_id,
         'ejercicio': calificacion.ejercicio,
@@ -62,7 +85,7 @@ def estado_calificacion(calificacion):
                 'monto': detalle.monto,
                 'factor': detalle.factor,
             }
-            for detalle in calificacion.detalles.order_by('concepto_id')
+            for detalle in detalles
         ],
     }
 

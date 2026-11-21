@@ -19,10 +19,45 @@
     <div><span>Fecha y hora</span><strong>{{ evento.fecha|date:"d-m-Y H:i:s" }}</strong></div>
     <div><span>Usuario</span><strong>{{ evento.usuario_nombre }}</strong></div>
     <div><span>Corredora</span><strong>{{ evento.corredora.nombre }}</strong></div>
-    <div><span>Calificación</span><strong>{{ evento.entidad }}</strong></div>
+    <div><span>{% if evento.calificacion_id %}Calificación{% else %}Lote{% endif %}</span><strong>{{ evento.entidad }}</strong></div>
     <div><span>Origen</span><strong>{{ evento.origen }}</strong></div>
+    {% if evento.lote and evento.calificacion_id %}
+      <div><span>Lote de carga</span><strong>Lote {{ evento.lote_id }} · {{ evento.lote.nombre_original }}</strong></div>
+    {% endif %}
   </div>
 </section>
+
+{% if evento.lote and not evento.calificacion_id %}
+{% with lote=evento.lote %}
+<section class="panel form-section">
+  <h2>Archivo cargado</h2>
+  <div class="record-summary">
+    <div><span>Nombre original</span><strong>{{ lote.nombre_original }}</strong></div>
+    <div><span>Tamaño</span><strong>{{ lote.tamano|filesizeformat }}</strong></div>
+    <div><span>Estado</span><strong>{{ lote.get_estado_display }}</strong></div>
+    <div><span>Filas</span><strong>{{ lote.filas }}</strong></div>
+    <div><span>Nuevas</span><strong>{{ lote.nuevas }}</strong></div>
+    <div><span>Actualizadas</span><strong>{{ lote.actualizadas }}</strong></div>
+  </div>
+  <p class="help">Huella SHA-256: <span class="mono">{{ lote.huella }}</span></p>
+</section>
+{% if lote.errores %}
+<section class="panel">
+  <div class="table-toolbar"><div><h2>Errores</h2><span>Por un error bloqueante se rechazó todo el archivo; no se guardó ninguna fila.</span></div></div>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th class="number">Fila</th><th>Columna</th><th>Error</th></tr></thead>
+      <tbody>
+        {% for error in lote.errores %}
+          <tr><td class="number">{{ error.fila|default:"—" }}</td><td>{{ error.col|default:"—" }}</td><td>{{ error.error }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endwith %}
+{% else %}
 
 <section class="panel">
   <div class="table-toolbar">
@@ -58,4 +93,5 @@
     </div>
   {% endif %}
 </section>
+{% endif %}
 {% endblock %}

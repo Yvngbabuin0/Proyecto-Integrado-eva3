@@ -143,6 +143,11 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
+# CSV subidos que esperan confirmación. Carpeta privada: no se publica por ninguna URL.
+CSV_PENDIENTES_DIR = BASE_DIR / 'media' / 'csv_pendientes'
+# Archivo original de cada carga confirmada o rechazada (tabla LoteCarga). También privada.
+CSV_LOTES_DIR = BASE_DIR / 'media' / 'csv_lotes'
+
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration

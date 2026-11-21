@@ -9,7 +9,7 @@
   <div>
     <p class="eyebrow">Carga masiva</p>
     <h1>Importar calificaciones desde CSV</h1>
-    <p>La carga es atómica: si una fila o un dato es inválido, no se guardará ninguna calificación.</p>
+    <p>Primero se valida el archivo completo y se muestra una previsualización. Nada se guarda hasta que confirmes. Si una fila o un dato es inválido, se rechaza el archivo entero.</p>
   </div>
 </div>
 
@@ -31,7 +31,7 @@
     </label>
     <div class="form-actions">
       <a href="{% url 'calificaciones:mantenedor' %}" class="button button--ghost">Cancelar</a>
-      <button type="submit" class="button button--primary">Validar y cargar</button>
+      <button type="submit" class="button button--primary">Validar y previsualizar</button>
     </div>
   </form>
 </section>

@@ -11,3 +11,9 @@ class FiltroEventosForm(forms.Form):
     corredora = forms.ModelChoiceField(
         label='Corredora', required=False, queryset=Corredora.objects.all(), empty_label='Todas',
     )
+
+    def __init__(self, *args, **kwargs):
+        ocultar_corredora = kwargs.pop('ocultar_corredora', False)
+        super().__init__(*args, **kwargs)
+        if ocultar_corredora:
+            self.fields['corredora'].widget = forms.HiddenInput()
