@@ -34,12 +34,21 @@ COLUMNAS_CSV = COLUMNAS_BASE + tuple(
 
 
 class ErrorCSV(ValueError):
-    pass
+    """Error bloqueante del archivo. ``fila`` y ``col`` indican dónde está, si se sabe."""
+
+    def __init__(self, mensaje, fila=None, col=None):
+        super().__init__(mensaje)
+        self.fila = fila
+        self.col = col
+
+    def detalle(self):
+        """Forma que se guarda en ``LoteCarga.errores``: {"fila": 12, "col": "factor_8", "error": "..."}."""
+        return {'fila': self.fila, 'col': self.col, 'error': str(self)}
 
 
 def _decimal(valor, columna, linea, max_digitos, decimales):
     if ',' in valor and '.' in valor:
-        raise ErrorCSV(f'Fila {linea}: {columna} debe usar un solo separador decimal.')
+        raise ErrorCSV(f'Fila {linea}: {columna} debe usar un solo separador decimal.', fila=linea, col=columna)
     try:
         numero = Decimal(valor.replace(',', '.'))
         if not numero.is_finite():
@@ -48,7 +57,9 @@ def _decimal(valor, columna, linea, max_digitos, decimales):
     except (InvalidOperation, ValidationError):
         raise ErrorCSV(
             f'Fila {linea}: {columna} debe ser un número con hasta '
-            f'{decimales} decimales.'
+            f'{decimales} decimales.',
+            fila=linea,
+            col=columna,
         ) from None
     return numero
 
@@ -57,9 +68,9 @@ def _entero(valor, columna, linea, minimo, maximo):
     try:
         numero = int(valor)
     except ValueError:
-        raise ErrorCSV(f'Fila {linea}: {columna} debe ser un número entero.') from None
+        raise ErrorCSV(f'Fila {linea}: {columna} debe ser un número entero.', fila=linea, col=columna) from None
     if not minimo <= numero <= maximo:
-        raise ErrorCSV(f'Fila {linea}: {columna} está fuera del rango permitido.')
+        raise ErrorCSV(f'Fila {linea}: {columna} está fuera del rango permitido.', fila=linea, col=columna)
     return numero
 
 
@@ -101,11 +112,11 @@ def _leer_csv(archivo):
         for fila in lector:
             linea = lector.line_num
             if len(registros) >= MAX_FILAS_CSV:
-                raise ErrorCSV(f'El archivo supera el máximo de {MAX_FILAS_CSV} filas.')
+                raise ErrorCSV(f'El archivo supera el máximo de {MAX_FILAS_CSV} filas.', fila=linea)
             if not fila:
-                raise ErrorCSV(f'Fila {linea}: la fila está vacía.')
+                raise ErrorCSV(f'Fila {linea}: la fila está vacía.', fila=linea, col=None)
             if len(fila) != len(encabezados):
-                raise ErrorCSV(f'Fila {linea}: la cantidad de columnas no coincide con los encabezados.')
+                raise ErrorCSV(f'Fila {linea}: la cantidad de columnas no coincide con los encabezados.', fila=linea, col=None)
 
             vacias = [
                 encabezados[indice]
@@ -113,16 +124,16 @@ def _leer_csv(archivo):
                 if valor is None or not valor.strip() or valor.strip().lower() in {'null', 'none'}
             ]
             if vacias:
-                raise ErrorCSV(f'Fila {linea}: hay campos vacíos o nulos: {", ".join(vacias)}.')
+                raise ErrorCSV(f'Fila {linea}: hay campos vacíos o nulos: {", ".join(vacias)}.', fila=linea, col=', '.join(vacias))
 
             valor = lambda columna: fila[posiciones[columna]].strip()
             mercado = valor('mercado').upper()
             if mercado not in Mercado.values:
-                raise ErrorCSV(f'Fila {linea}: mercado debe ser ACC, CFI o FM.')
+                raise ErrorCSV(f'Fila {linea}: mercado debe ser ACC, CFI o FM.', fila=linea, col='mercado')
 
             codigo = valor('codigo_instrumento').upper()
             if len(codigo) > 30:
-                raise ErrorCSV(f'Fila {linea}: codigo_instrumento no puede superar 30 caracteres.')
+                raise ErrorCSV(f'Fila {linea}: codigo_instrumento no puede superar 30 caracteres.', fila=linea, col='codigo_instrumento')
 
             ejercicio = _entero(valor('ejercicio'), 'ejercicio', linea, 0, 32767)
             secuencia = _entero(
@@ -135,17 +146,17 @@ def _leer_csv(archivo):
             try:
                 fecha_pago = date.fromisoformat(valor('fecha_pago'))
             except ValueError:
-                raise ErrorCSV(f'Fila {linea}: fecha_pago debe tener formato AAAA-MM-DD.') from None
+                raise ErrorCSV(f'Fila {linea}: fecha_pago debe tener formato AAAA-MM-DD.', fila=linea, col='fecha_pago') from None
 
             descripcion = valor('descripcion')
             if len(descripcion) > 200:
-                raise ErrorCSV(f'Fila {linea}: descripcion no puede superar 200 caracteres.')
+                raise ErrorCSV(f'Fila {linea}: descripcion no puede superar 200 caracteres.', fila=linea, col='descripcion')
 
             isfut_texto = valor('isfut').lower()
             valores_si = {'1', 'true', 'si', 'sí', 'yes'}
             valores_no = {'0', 'false', 'no'}
             if isfut_texto not in valores_si | valores_no:
-                raise ErrorCSV(f'Fila {linea}: isfut debe ser Sí/No o 1/0.')
+                raise ErrorCSV(f'Fila {linea}: isfut debe ser Sí/No o 1/0.', fila=linea, col='isfut')
 
             valor_historico = _decimal(
                 valor('valor_historico'), 'valor_historico', linea, 18, 8
@@ -158,22 +169,25 @@ def _leer_csv(archivo):
                 monto = _decimal(valor(f'monto_{numero}'), f'monto_{numero}', linea, 15, 2)
                 factor = _decimal(valor(f'factor_{numero}'), f'factor_{numero}', linea, 9, 8)
                 if monto < 0:
-                    raise ErrorCSV(f'Fila {linea}: monto_{numero} no puede ser negativo.')
+                    raise ErrorCSV(f'Fila {linea}: monto_{numero} no puede ser negativo.', fila=linea, col=f'monto_{numero}')
                 if not 0 <= factor <= 1:
-                    raise ErrorCSV(f'Fila {linea}: factor_{numero} debe estar entre 0 y 1.')
+                    raise ErrorCSV(f'Fila {linea}: factor_{numero} debe estar entre 0 y 1.', fila=linea, col=f'factor_{numero}')
                 detalles.append((numero, monto, factor))
             suma = sum((factor for numero, _, factor in detalles if numero in CONCEPTOS_SUMA), Decimal(0))
             if suma > 1:
                 raise ErrorCSV(
                     f'Fila {linea}: la suma de los factores 8 a 19 es {suma:.8f}'.replace('.', ',')
-                    + ' y no puede superar 1.'
+                    + ' y no puede superar 1.',
+                    fila=linea,
+                    col='factor_8 a factor_19',
                 )
 
             clave = (codigo, mercado, ejercicio, secuencia)
             if clave in claves_vistas:
                 raise ErrorCSV(
                     f'Fila {linea}: registro duplicado dentro del CSV '
-                    f'(también aparece en la fila {claves_vistas[clave]}).'
+                    f'(también aparece en la fila {claves_vistas[clave]}).',
+                    fila=linea,
                 )
             claves_vistas[clave] = linea
             registros.append({
