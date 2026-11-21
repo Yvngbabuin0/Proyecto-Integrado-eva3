@@ -38,8 +38,16 @@ class EventoAuditoria(models.Model):
         return f'{self.get_accion_display()} · calificación {self.calificacion_id}'
 
 
-def estado_calificacion(calificacion):
-    """Representación estable de una calificación local y sus detalles."""
+def estado_calificacion(calificacion, detalles=None):
+    """Representación estable de una calificación local y sus detalles.
+
+    ``detalles`` permite pasar los detalles ya cargados (por ejemplo en la carga CSV, para
+    no hacer una consulta por fila); si se omite, se leen de la base de datos.
+    """
+    if detalles is None:
+        detalles = calificacion.detalles.order_by('concepto_id')
+    else:
+        detalles = sorted(detalles, key=lambda detalle: detalle.concepto_id)
     return {
         'instrumento_id': calificacion.instrumento_id,
         'ejercicio': calificacion.ejercicio,
@@ -62,7 +70,7 @@ def estado_calificacion(calificacion):
                 'monto': detalle.monto,
                 'factor': detalle.factor,
             }
-            for detalle in calificacion.detalles.order_by('concepto_id')
+            for detalle in detalles
         ],
     }
 
