@@ -140,6 +140,8 @@ th.sticky-col { background: var(--bg); }
 .badge--baja { background: var(--warning-bg); color: var(--warning); border-color: #fedf89; }
 .badge--carga { background: var(--success-bg); color: var(--success); border-color: #abefc6; }
 .badge--rechazo { background: var(--error-bg); color: var(--error); border-color: #fecdca; }
+.badge--exitoso { background: var(--success-bg); color: var(--success); border-color: #abefc6; }
+.badge--rechazado { background: var(--error-bg); color: var(--error); border-color: #fecdca; }
 .text-muted { color: var(--muted); }
 .text-success { color: var(--success); }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 12px; border-top: 1px solid var(--line); }
