@@ -878,3 +878,13 @@ class LoteCargaTests(CarpetaCSVTemporalMixin, TestCase):
 
         self.assertEqual(self.client.get(reverse('auditoria:detalle', args=[evento.pk])).status_code, 404)
         self.assertEqual(self.client.get(reverse('auditoria:listado')).context['pagina'].paginator.count, 0)
+
+    def test_error_inesperado_al_confirmar_no_deja_archivo_huerfano(self):
+        self.subir([{}])
+        with mock.patch('calificaciones.lotes._evento_lote', side_effect=RuntimeError('Falla de la base')):
+            with self.assertRaises(RuntimeError):
+                self.client.post(reverse('calificaciones:confirmar_csv'))
+
+        self.assertFalse(LoteCarga.objects.exists())
+        self.assertFalse(CalificacionLocal.objects.exists())
+        self.assertEqual(list(self.carpeta_lotes.iterdir()), [])
