@@ -178,9 +178,7 @@ th.sticky-col { background: var(--bg); }
 .suma-label { font-size: 13px; font-weight: 500; color: var(--muted); }
 .suma-value { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 14px; }
 .suma-ok { color: var(--success); }
-.suma-tolerancia { color: var(--warning); }
 .suma-error { color: var(--error); }
-.suma-help { font-size: 12px; color: var(--warning); }
 .suma-error-msg { font-size: 12px; color: var(--error); }
 
 /* Confirmación de baja */

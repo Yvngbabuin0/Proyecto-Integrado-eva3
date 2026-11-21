@@ -83,15 +83,14 @@
           </tbody>
         </table>
       </div>
-      {% if detalles.suma_mostrada is not None %}
+      {# La suma solo se conoce después de "Calcular factores". #}
+      {% if suma_factores_8_a_19 is not None %}
         <div class="suma-indicator">
           <span class="suma-label">Suma F8–F19:</span>
-          <span class="suma-value {% if suma_factores_8_a_19 <= 1 %}suma-ok{% elif suma_factores_8_a_19 <= 1.00000006 %}suma-tolerancia{% else %}suma-error{% endif %}">
+          <span class="suma-value {% if suma_factores_8_a_19 <= 1 %}suma-ok{% else %}suma-error{% endif %}">
             {{ suma_factores_8_a_19|floatformat:8 }}
           </span>
-          {% if suma_factores_8_a_19 > 1 and suma_factores_8_a_19 <= 1.00000006 %}
-            <span class="suma-help">(dentro de tolerancia de redondeo: 0,00000006)</span>
-          {% elif suma_factores_8_a_19 > 1.00000006 %}
+          {% if suma_factores_8_a_19 > 1 %}
             <span class="suma-error-msg">Supera el máximo permitido (1,00000000)</span>
           {% endif %}
         </div>
