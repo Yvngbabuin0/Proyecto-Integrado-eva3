@@ -532,11 +532,9 @@ class CalculoBotonTests(TestCase):
         # F30 = 0.04294924
         self.assertContains(respuesta, '0,04294924')
 
-        # El concepto 35 NO debe tener factor calculado (debe permanecer vacío/0,00000000)
-        # Verificamos que el campo factor_35 está presente pero su valor está vacío (no se calculó)
-        self.assertContains(respuesta, 'id_factor_35')
-        # El value debe estar vacío o ser 0,00000000 (no calculado automáticamente)
-        self.assertContains(respuesta, 'name="factor_35"')
+        # El concepto 35 es de ingreso directo: aunque tenga monto, su factor no se calcula.
+        self.assertContains(respuesta, '<input type="text" name="factor_35" id="id_factor_35">', html=True)
+        self.assertNotIn('factor_35', respuesta.context['detalles'].data)
 
     def test_calcular_y_grabar_con_variaciones_intervencion_negada(self):
         self.skipTest('Skip complex variation test')
