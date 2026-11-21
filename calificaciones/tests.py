@@ -1,10 +1,12 @@
 import csv
+import hashlib
 import io
 import shutil
 import tempfile
 from pathlib import Path
 from datetime import date
 from decimal import Decimal
+from unittest import mock
 
 from django.contrib.auth.models import Group
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -14,13 +16,14 @@ from django.urls import reverse
 from auditoria.models import EventoAuditoria
 from cuentas.models import Corredora, Usuario
 
-from .importador_csv import COLUMNAS_CSV, MAX_FILAS_CSV
+from .importador_csv import COLUMNAS_CSV, MAX_FILAS_CSV, ErrorCSV
 from .models import (
     CONCEPTOS,
     CalificacionBase,
     CalificacionLocal,
     DetalleLocal,
     Instrumento,
+    LoteCarga,
     Mercado,
 )
 from .calculo import CONCEPTOS_CON_FORMULA, SumaCeroError, factores_desde_montos
@@ -207,10 +210,12 @@ class CarpetaCSVTemporalMixin:
     def setUp(self):
         super().setUp()
         self.carpeta_csv = Path(tempfile.mkdtemp())
-        ajuste = override_settings(CSV_PENDIENTES_DIR=self.carpeta_csv)
+        self.carpeta_lotes = Path(tempfile.mkdtemp())
+        ajuste = override_settings(CSV_PENDIENTES_DIR=self.carpeta_csv, CSV_LOTES_DIR=self.carpeta_lotes)
         ajuste.enable()
         self.addCleanup(ajuste.disable)
         self.addCleanup(shutil.rmtree, self.carpeta_csv, ignore_errors=True)
+        self.addCleanup(shutil.rmtree, self.carpeta_lotes, ignore_errors=True)
 
 
 class CargaCSVTests(CarpetaCSVTemporalMixin, TestCase):
@@ -807,3 +812,124 @@ class DuplicadosCSVTests(CarpetaCSVTemporalMixin, TestCase):
         self.client.post(reverse('calificaciones:confirmar_csv'))
         self.assertTrue(CalificacionLocal.objects.filter(descripcion='Nueva', activa=True).exists())
         self.assertTrue(CalificacionLocal.objects.filter(descripcion='Dada de baja', activa=False).exists())
+
+
+class LoteCargaTests(CarpetaCSVTemporalMixin, TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.corredora = Corredora.objects.create(rut='3-5', nombre='Corredora CSV')
+        cls.analista = crear_usuario('analista_csv', 'Analista Tributario', corredora=cls.corredora)
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.analista)
+
+    def subir(self, filas, nombre='calificaciones.csv'):
+        archivo = archivo_csv(filas, nombre)
+        contenido = archivo.read()
+        archivo.seek(0)
+        respuesta = self.client.post(reverse('calificaciones:cargar_csv'), {'archivo': archivo})
+        return respuesta, contenido
+
+    def test_confirmar_registra_el_lote_con_su_archivo_original(self):
+        instrumento = Instrumento.objects.create(codigo='CSV-TEST', mercado=Mercado.ACCIONES)
+        CalificacionLocal.objects.create(
+            corredora=self.corredora, instrumento=instrumento, ejercicio=2025,
+            fecha_pago=date(2025, 6, 30), secuencia_evento=500, descripcion='Existente',
+        )
+        _, contenido = self.subir([{}, {'secuencia_evento': '501'}, {'secuencia_evento': '502'}], 'dividendos.csv')
+        respuesta = self.client.post(reverse('calificaciones:confirmar_csv'), follow=True)
+
+        lote = LoteCarga.objects.get()
+        self.assertContains(respuesta, f'Carga confirmada (lote {lote.pk}): 2 calificaciones nuevas y 1 actualizadas')
+        self.assertEqual(lote.estado, LoteCarga.Estado.CARGADO)
+        self.assertEqual((lote.corredora, lote.usuario), (self.corredora, self.analista))
+        self.assertEqual(lote.nombre_original, 'dividendos.csv')
+        self.assertEqual((lote.filas, lote.nuevas, lote.actualizadas), (3, 2, 1))
+        self.assertEqual(lote.tamano, len(contenido))
+        self.assertEqual(lote.huella, hashlib.sha256(contenido).hexdigest())
+        self.assertEqual(lote.errores, [])
+        # El archivo se guarda con el nombre generado, nunca con el enviado por el usuario.
+        self.assertEqual(list(self.carpeta_lotes.iterdir()), [self.carpeta_lotes / f'{lote.archivo_id}.csv'])
+        self.assertEqual((self.carpeta_lotes / f'{lote.archivo_id}.csv').read_bytes(), contenido)
+
+    def test_la_carga_deja_un_evento_del_lote_y_uno_por_calificacion(self):
+        self.subir([{}, {'secuencia_evento': '501'}])
+        self.client.post(reverse('calificaciones:confirmar_csv'))
+
+        lote = LoteCarga.objects.get()
+        carga = EventoAuditoria.objects.get(accion=EventoAuditoria.Accion.CARGA)
+        self.assertEqual(carga.lote, lote)
+        self.assertIsNone(carga.calificacion_id)
+        self.assertEqual(carga.usuario, self.analista)
+        self.assertEqual(
+            EventoAuditoria.objects.filter(accion=EventoAuditoria.Accion.CREAR, lote=lote).count(), 2,
+        )
+
+    def test_archivo_rechazado_al_subirlo_queda_registrado(self):
+        respuesta, contenido = self.subir([{}, {'secuencia_evento': '501', 'factor_8': '1.5'}], 'malo.csv')
+
+        self.assertContains(respuesta, 'factor_8 debe estar entre 0 y 1')
+        lote = LoteCarga.objects.get()
+        self.assertEqual(lote.estado, LoteCarga.Estado.RECHAZADO)
+        self.assertEqual(lote.nombre_original, 'malo.csv')
+        self.assertEqual(lote.filas, 0)
+        self.assertEqual(
+            lote.errores, [{'fila': 3, 'col': 'factor_8', 'error': 'Fila 3: factor_8 debe estar entre 0 y 1.'}],
+        )
+        self.assertEqual((self.carpeta_lotes / f'{lote.archivo_id}.csv').read_bytes(), contenido)
+        rechazo = EventoAuditoria.objects.get()
+        self.assertEqual((rechazo.accion, rechazo.lote), (EventoAuditoria.Accion.RECHAZO, lote))
+        self.assertFalse(CalificacionLocal.objects.exists())
+
+    def test_falla_al_confirmar_revierte_todo_y_registra_el_rechazo(self):
+        self.subir([{}])
+        with mock.patch('calificaciones.lotes.guardar_registros', side_effect=ErrorCSV('Falla simulada')):
+            respuesta = self.client.post(reverse('calificaciones:confirmar_csv'), follow=True)
+
+        self.assertContains(respuesta, 'Falla simulada')
+        self.assertFalse(CalificacionLocal.objects.exists())
+        lote = LoteCarga.objects.get()  # el lote CARGADO se revirtió; solo queda el rechazo
+        self.assertEqual(lote.estado, LoteCarga.Estado.RECHAZADO)
+        self.assertEqual(lote.errores, [{'fila': None, 'col': None, 'error': 'Falla simulada'}])
+        self.assertEqual(list(self.carpeta_lotes.iterdir()), [self.carpeta_lotes / f'{lote.archivo_id}.csv'])
+        self.assertEqual(
+            list(EventoAuditoria.objects.values_list('accion', flat=True)), [EventoAuditoria.Accion.RECHAZO],
+        )
+
+    def test_cancelar_no_crea_lote(self):
+        self.subir([{}])
+        self.client.post(reverse('calificaciones:cancelar_csv'))
+        self.assertFalse(LoteCarga.objects.exists())
+        self.assertFalse(EventoAuditoria.objects.exists())
+
+    def test_el_log_muestra_el_rechazo_con_sus_errores(self):
+        self.subir([{'monto_8': ''}], 'vacio.csv')
+        evento = EventoAuditoria.objects.get()
+
+        listado = self.client.get(reverse('auditoria:listado'))
+        self.assertContains(listado, 'Carga rechazada')
+        self.assertContains(listado, f'Lote {evento.lote_id} · vacio.csv')
+
+        detalle = self.client.get(reverse('auditoria:detalle', args=[evento.pk]))
+        self.assertContains(detalle, 'hay campos vacíos o nulos: monto_8')
+        self.assertContains(detalle, evento.lote.huella)
+
+    def test_otra_corredora_no_ve_el_lote_en_el_log(self):
+        self.subir([{'monto_8': ''}])
+        evento = EventoAuditoria.objects.get()
+        otra = Corredora.objects.create(rut='9-9', nombre='Otra corredora')
+        self.client.force_login(crear_usuario('analista_otra', 'Analista Tributario', corredora=otra))
+
+        self.assertEqual(self.client.get(reverse('auditoria:detalle', args=[evento.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('auditoria:listado')).context['pagina'].paginator.count, 0)
+
+    def test_error_inesperado_al_confirmar_no_deja_archivo_huerfano(self):
+        self.subir([{}])
+        with mock.patch('calificaciones.lotes._evento_lote', side_effect=RuntimeError('Falla de la base')):
+            with self.assertRaises(RuntimeError):
+                self.client.post(reverse('calificaciones:confirmar_csv'))
+
+        self.assertFalse(LoteCarga.objects.exists())
+        self.assertFalse(CalificacionLocal.objects.exists())
+        self.assertEqual(list(self.carpeta_lotes.iterdir()), [])

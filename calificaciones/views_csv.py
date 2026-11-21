@@ -13,7 +13,8 @@ from django.views.decorators.http import require_POST
 from cuentas.sesion import corredora_actual
 
 from .forms import CargaCSVForm
-from .importador_csv import ErrorCSV, guardar_registros, validar_csv
+from .importador_csv import ErrorCSV, validar_csv
+from .lotes import confirmar_carga, registrar_rechazo
 from .models import CONCEPTOS_SUMA, Mercado
 
 CLAVE_SESION = 'csv_pendiente'
@@ -49,6 +50,9 @@ def cargar_csv(request):
         try:
             validar_csv(io.BytesIO(contenido), corredora_actual(request))
         except ErrorCSV as error:
+            registrar_rechazo(
+                contenido, form.cleaned_data['archivo'].name, corredora_actual(request), request.user, error,
+            )
             messages.error(request, str(error))
         else:
             _descartar(request)  # si había otro archivo pendiente, se reemplaza
@@ -108,10 +112,13 @@ def confirmar_csv(request):
     if pendiente is None:
         messages.error(request, 'No hay un archivo pendiente de confirmar. Vuelve a subirlo.')
         return redirect('calificaciones:cargar_csv')
+    contenido = _ruta(pendiente['id']).read_bytes()
+    corredora = corredora_actual(request)
     try:
-        registros, _ = validar_csv(io.BytesIO(_ruta(pendiente['id']).read_bytes()), corredora_actual(request))
-        resultado = guardar_registros(registros, corredora_actual(request), request.user)
+        lote = confirmar_carga(contenido, pendiente['nombre'], corredora, request.user)
     except ErrorCSV as error:
+        # La transacción de la carga ya se revirtió; el rechazo se registra aparte.
+        registrar_rechazo(contenido, pendiente['nombre'], corredora, request.user, error)
         messages.error(request, str(error))
         return redirect('calificaciones:cargar_csv')
     finally:
@@ -119,8 +126,8 @@ def confirmar_csv(request):
 
     messages.success(
         request,
-        f"Carga confirmada: {resultado['nuevas']} calificaciones nuevas y "
-        f"{resultado['actualizadas']} actualizadas.",
+        f'Carga confirmada (lote {lote.pk}): {lote.nuevas} calificaciones nuevas y '
+        f'{lote.actualizadas} actualizadas.',
     )
     return redirect('calificaciones:mantenedor')
 

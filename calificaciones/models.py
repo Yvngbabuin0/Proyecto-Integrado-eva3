@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
@@ -131,3 +132,37 @@ class DetalleLocal(Detalle):
         constraints = [
             models.UniqueConstraint(fields=['calificacion', 'concepto'], name='detalle_local_unico'),
         ]
+
+
+class LoteCarga(models.Model):
+    """Una carga masiva por CSV, confirmada o rechazada.
+
+    El archivo original se guarda en una carpeta privada (``CSV_LOTES_DIR``) con un nombre
+    generado (``archivo_id``); aquí quedan su nombre original, tamaño y huella SHA-256.
+    """
+
+    class Estado(models.TextChoices):
+        CARGADO = 'CARGADO', 'Cargado'
+        RECHAZADO = 'RECHAZADO', 'Rechazado'
+
+    corredora = models.ForeignKey(Corredora, on_delete=models.PROTECT, related_name='lotes_carga')
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='lotes_carga')
+    fecha = models.DateTimeField(auto_now_add=True)
+    estado = models.CharField(max_length=10, choices=Estado.choices)
+    archivo_id = models.UUIDField(unique=True)
+    nombre_original = models.CharField(max_length=255)
+    tamano = models.PositiveIntegerField(help_text='Tamaño del archivo en bytes.')
+    huella = models.CharField(max_length=64, help_text='SHA-256 del archivo.')
+    filas = models.PositiveIntegerField(default=0)
+    nuevas = models.PositiveIntegerField(default=0)
+    actualizadas = models.PositiveIntegerField(default=0)
+    # Lista de {"fila": 12, "col": "factor_8", "error": "..."}; vacía si se cargó.
+    errores = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        ordering = ['-fecha', '-pk']
+        verbose_name = 'lote de carga'
+        verbose_name_plural = 'lotes de carga'
+
+    def __str__(self):
+        return f'Lote {self.pk} · {self.nombre_original}'
