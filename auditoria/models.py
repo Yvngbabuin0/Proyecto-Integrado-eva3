@@ -5,21 +5,18 @@ from django.db import models
 from cuentas.models import Corredora
 
 
+class EventoInmutableError(Exception):
+    """Intento de modificar o eliminar un evento de auditoría: el log es de solo inserción."""
+
+
 class EventoAuditoriaQuerySet(models.QuerySet):
     """QuerySet que prohíbe UPDATE y DELETE masivos."""
 
     def update(self, **kwargs):
-        raise ValueError('No se pueden modificar eventos de auditoría (INSERT-only)')
+        raise EventoInmutableError('No se pueden modificar eventos de auditoría (INSERT-only)')
 
     def delete(self):
-        raise ValueError('No se pueden eliminar eventos de auditoría (INSERT-only)')
-
-
-class EventoAuditoriaManager(models.Manager):
-    """Manager que usa EventoAuditoriaQuerySet."""
-
-    def get_queryset(self):
-        return EventoAuditoriaQuerySet(self.model, using=self._db)
+        raise EventoInmutableError('No se pueden eliminar eventos de auditoría (INSERT-only)')
 
 
 class EventoAuditoria(models.Model):
@@ -55,10 +52,13 @@ class EventoAuditoria(models.Model):
     estado_anterior = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
     estado_posterior = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
 
-    objects = EventoAuditoriaManager()
+    objects = EventoAuditoriaQuerySet.as_manager()
 
     class Meta:
         ordering = ['-fecha', '-pk']
+        # Django usa el manager base en operaciones internas; sin esto, _base_manager.update()
+        # se saltaría el bloqueo.
+        base_manager_name = 'objects'
         default_permissions = ('view',)
         permissions = [
             ('ver_todas_las_corredoras', 'Puede ver los eventos de todas las corredoras'),
@@ -74,12 +74,12 @@ class EventoAuditoria(models.Model):
     def save(self, *args, **kwargs):
         """Prohíbe UPDATE: solo permite INSERT inicial (force_insert=True o _state.adding)."""
         if not self._state.adding and not kwargs.get('force_insert', False):
-            raise ValueError('No se pueden modificar eventos de auditoría (INSERT-only)')
+            raise EventoInmutableError('No se pueden modificar eventos de auditoría (INSERT-only)')
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
         """Prohíbe DELETE de instancias individuales."""
-        raise ValueError('No se pueden eliminar eventos de auditoría (INSERT-only)')
+        raise EventoInmutableError('No se pueden eliminar eventos de auditoría (INSERT-only)')
 
 
 def estado_calificacion(calificacion, detalles=None):

@@ -2,13 +2,14 @@ from datetime import date
 from unittest import mock
 
 from django.contrib.auth.models import Group
+from django.db import transaction
 from django.test import TestCase
 from django.urls import reverse
 
 from calificaciones.models import CONCEPTOS, CalificacionLocal, Instrumento, Mercado
 from cuentas.models import Corredora, Usuario
 
-from .models import EventoAuditoria
+from .models import EventoAuditoria, EventoInmutableError
 
 
 def crear_usuario(username, rol, corredora=None, **campos):
@@ -391,7 +392,7 @@ class EventoAuditoriaProteccionTests(TestCase):
         evento = self.crear_evento()
         descripcion_original = evento.estado_posterior['descripcion']
 
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(EventoInmutableError) as cm:
             evento.estado_posterior = {'descripcion': 'Modificado'}
             evento.save()
 
@@ -403,7 +404,7 @@ class EventoAuditoriaProteccionTests(TestCase):
     def test_eliminar_evento_lanza_excepcion(self):
         evento = self.crear_evento()
 
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(EventoInmutableError) as cm:
             evento.delete()
 
         self.assertIn('INSERT-only', str(cm.exception))
@@ -413,7 +414,7 @@ class EventoAuditoriaProteccionTests(TestCase):
     def test_update_masivo_lanza_excepcion(self):
         evento = self.crear_evento()
 
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(EventoInmutableError) as cm:
             EventoAuditoria.objects.filter(pk=evento.pk).update(estado_posterior={'descripcion': 'Modificado'})
 
         self.assertIn('INSERT-only', str(cm.exception))
@@ -423,8 +424,29 @@ class EventoAuditoriaProteccionTests(TestCase):
     def test_delete_masivo_lanza_excepcion(self):
         evento = self.crear_evento()
 
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(EventoInmutableError) as cm:
             EventoAuditoria.objects.filter(pk=evento.pk).delete()
 
         self.assertIn('INSERT-only', str(cm.exception))
+        self.assertTrue(EventoAuditoria.objects.filter(pk=evento.pk).exists())
+
+    def test_manager_base_tambien_bloquea(self):
+        evento = self.crear_evento()
+
+        with self.assertRaises(EventoInmutableError):
+            EventoAuditoria._base_manager.filter(pk=evento.pk).update(usuario_nombre='otro')
+        with self.assertRaises(EventoInmutableError):
+            EventoAuditoria._base_manager.filter(pk=evento.pk).delete()
+
+        evento.refresh_from_db()
+        self.assertEqual(evento.usuario_nombre, self.usuario.username)
+
+    def test_bulk_update_y_borrado_por_relacion_bloqueados(self):
+        evento = self.crear_evento()
+
+        # bulk_update abre su propia transacción: se aísla para que el error no rompa la de la prueba.
+        with self.assertRaises(EventoInmutableError), transaction.atomic():
+            EventoAuditoria.objects.bulk_update([evento], ['usuario_nombre'])
+        with self.assertRaises(EventoInmutableError):
+            self.corredora.eventos_auditoria.all().delete()
         self.assertTrue(EventoAuditoria.objects.filter(pk=evento.pk).exists())
