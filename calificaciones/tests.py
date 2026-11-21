@@ -473,6 +473,36 @@ class CalculoBotonTests(TestCase):
         self.client.post(uri, datos_grabar, follow=True)
         self.assertTrue(CalificacionLocal.objects.filter(descripcion='Calcular y grabar').exists())
 
+    def datos_seis_montos_iguales(self, **extra):
+        datos = {
+            'mercado': 'ACC', 'ejercicio': '2025', 'codigo_instrumento': 'SEIS',
+            'secuencia_evento': '100001', 'fecha_pago': '2025-01-01',
+            'numero_dividendo': '0', 'descripcion': 'Seis montos iguales',
+            'valor_historico': '0', 'factor_actualizacion': '0',
+        }
+        datos.update({f'monto_{n}': '1000' for n in range(8, 14)})
+        datos.update(extra)
+        return datos
+
+    def test_calcular_y_grabar_seis_montos_iguales(self):
+        # Antes del ajuste, estos factores sumaban 1,00000002.
+        uri = reverse('calificaciones:ingresar')
+        calculo = self.client.post(uri, self.datos_seis_montos_iguales(accion='calcular'))
+        self.assertContains(calculo, 'value="0,16666666"')
+        datos = self.datos_seis_montos_iguales()
+        datos.update({clave: valor for clave, valor in calculo.context['detalles'].data.items() if clave.startswith('factor_')})
+        respuesta = self.client.post(uri, datos)
+        self.assertRedirects(respuesta, reverse('calificaciones:mantenedor'))
+        calificacion = CalificacionLocal.objects.get(descripcion='Seis montos iguales')
+        suma = sum(d.factor for d in calificacion.detalles.filter(concepto_id__in=range(8, 20)))
+        self.assertEqual(suma, Decimal('1.00000000'))
+
+    def test_factores_que_suman_mas_de_uno_se_bloquean(self):
+        factores = {f'factor_{n}': '0,16666667' for n in range(8, 14)}
+        respuesta = self.client.post(reverse('calificaciones:ingresar'), self.datos_seis_montos_iguales(**factores))
+        self.assertContains(respuesta, 'La suma de los factores 8 a 19 no puede superar 1')
+        self.assertFalse(CalificacionLocal.objects.exists())
+
     def test_calcular_no_muestra_notacion_cientifica(self):
         # Los factores cero no deben renderizar como '0E-8'.
         datos = {
