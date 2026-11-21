@@ -11,6 +11,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from auditoria.models import EventoAuditoria
 from cuentas.models import Corredora, Usuario
 
 from .importador_csv import COLUMNAS_CSV, MAX_FILAS_CSV
@@ -285,25 +286,85 @@ class CargaCSVTests(CarpetaCSVTemporalMixin, TestCase):
         calificacion = CalificacionLocal.objects.get(descripcion='Importada con coma decimal')
         self.assertEqual(calificacion.detalles.get(concepto_id=8).monto, Decimal('1200.50'))
 
-    def test_registro_duplicado_existente_rechaza_el_archivo(self):
-        instrumento = Instrumento.objects.create(codigo='CSV-TEST', mercado=Mercado.ACCIONES)
-        CalificacionLocal.objects.create(
-            corredora=self.corredora,
-            instrumento=instrumento,
-            ejercicio=2025,
-            fecha_pago=date(2025, 6, 30),
-            secuencia_evento=500,
-            descripcion='Ya existe',
-        )
+    def crear_existente(self, corredora=None, **campos):
+        instrumento, _ = Instrumento.objects.get_or_create(codigo='CSV-TEST', mercado=Mercado.ACCIONES)
+        datos = {
+            'corredora': corredora or self.corredora, 'instrumento': instrumento, 'ejercicio': 2025,
+            'fecha_pago': date(2025, 6, 30), 'secuencia_evento': 500, 'descripcion': 'Ya existe',
+            'forma_ingreso': CalificacionLocal.FormaIngreso.MANUAL,
+        }
+        datos.update(campos)
+        calificacion = CalificacionLocal.objects.create(**datos)
+        calificacion.detalles.create(concepto_id=8, monto=Decimal('10'), factor=Decimal('0.1'))
+        return calificacion
+
+    def test_fila_existente_actualiza_la_calificacion_en_vez_de_rechazar(self):
+        existente = self.crear_existente()
 
         respuesta = self.cargar(archivo_csv([
             {'descripcion': 'Nueva', 'secuencia_evento': '501'},
-            {'descripcion': 'Duplicada'},
+            {'descripcion': 'Actualizada', 'monto_8': '500', 'factor_8': '0.75'},
         ]))
 
-        self.assertContains(respuesta, 'duplicados')
-        self.assertEqual(CalificacionLocal.objects.filter(corredora=self.corredora).count(), 1)
+        self.assertRedirects(respuesta, reverse('calificaciones:mantenedor'))
+        self.assertEqual(CalificacionLocal.objects.filter(corredora=self.corredora).count(), 2)
+        existente.refresh_from_db()
+        self.assertEqual(existente.descripcion, 'Actualizada')
+        self.assertEqual(existente.forma_ingreso, CalificacionLocal.FormaIngreso.ARCHIVO)
+        self.assertEqual(existente.detalles.count(), len(CONCEPTOS))
+        self.assertEqual(existente.detalles.get(concepto_id=8).factor, Decimal('0.75000000'))
+        self.assertGreater(existente.modificada, existente.creada)
 
+    def test_mensaje_indica_nuevas_y_actualizadas(self):
+        self.crear_existente()
+        respuesta = self.client.post(
+            reverse('calificaciones:cargar_csv'),
+            {'archivo': archivo_csv([{'secuencia_evento': '501'}, {'secuencia_evento': '502'}, {}])},
+        )
+        respuesta = self.client.post(reverse('calificaciones:confirmar_csv'), follow=True)
+        self.assertContains(respuesta, '2 calificaciones nuevas y 1 actualizadas')
+
+    def test_no_actualiza_la_calificacion_de_otra_corredora(self):
+        otra = Corredora.objects.create(rut='9-9', nombre='Otra corredora')
+        ajena = self.crear_existente(corredora=otra)
+
+        self.cargar(archivo_csv([{'descripcion': 'Propia'}]))
+
+        ajena.refresh_from_db()
+        self.assertEqual(ajena.descripcion, 'Ya existe')
+        self.assertTrue(CalificacionLocal.objects.filter(corredora=self.corredora, descripcion='Propia').exists())
+
+    def test_suma_de_factores_8_a_19_mayor_a_uno_rechaza_el_archivo(self):
+        respuesta = self.cargar(archivo_csv([{'factor_8': '0.6', 'factor_19': '0.40000001'}]))
+
+        self.assertContains(respuesta, 'la suma de los factores 8 a 19 es 1,00000001 y no puede superar 1')
+        self.assertFalse(CalificacionLocal.objects.filter(corredora=self.corredora).exists())
+
+    def test_factores_20_a_37_no_entran_en_la_suma(self):
+        respuesta = self.cargar(archivo_csv([{'factor_8': '1', 'factor_20': '0.5', 'factor_34': '0.5'}]))
+
+        self.assertRedirects(respuesta, reverse('calificaciones:mantenedor'))
+
+    def test_carga_registra_creacion_y_modificacion_en_auditoria(self):
+        existente = self.crear_existente()
+
+        self.cargar(archivo_csv([
+            {'descripcion': 'Nueva', 'secuencia_evento': '501'},
+            {'descripcion': 'Actualizada', 'factor_8': '0.75'},
+        ]))
+
+        nueva = CalificacionLocal.objects.get(descripcion='Nueva')
+        creacion = EventoAuditoria.objects.get(calificacion_id=nueva.pk)
+        self.assertEqual(creacion.accion, EventoAuditoria.Accion.CREAR)
+        self.assertEqual(creacion.usuario, self.analista)
+        self.assertIsNone(creacion.estado_anterior)
+        self.assertEqual(len(creacion.estado_posterior['detalles']), len(CONCEPTOS))
+
+        modificacion = EventoAuditoria.objects.get(calificacion_id=existente.pk)
+        self.assertEqual(modificacion.accion, EventoAuditoria.Accion.MODIFICAR)
+        self.assertEqual(modificacion.estado_anterior['descripcion'], 'Ya existe')
+        self.assertEqual(modificacion.estado_anterior['detalles'][0]['factor'], '0.10000000')
+        self.assertEqual(modificacion.estado_posterior['descripcion'], 'Actualizada')
     def test_superar_5000_filas_rechaza_el_archivo_sin_guardar(self):
         filas = ({'secuencia_evento': str(1000 + indice)} for indice in range(MAX_FILAS_CSV + 1))
 
@@ -577,7 +638,10 @@ class PrevisualizacionCSVTests(CarpetaCSVTemporalMixin, TestCase):
         self.assertContains(previsualizacion, 'Primera')
         self.assertContains(previsualizacion, 'CSV-TEST')
         self.assertContains(previsualizacion, '1,00000000')  # suma F8–F19
-        self.assertEqual(previsualizacion.context['resumen'], {'filas': 1, 'instrumentos_nuevos': 1})
+        self.assertEqual(
+            previsualizacion.context['resumen'],
+            {'filas': 1, 'nuevas': 1, 'actualizadas': 0, 'instrumentos_nuevos': 1},
+        )
         self.assertFalse(self.locales().exists())
         self.assertEqual(len(list(self.carpeta_csv.iterdir())), 1)
 
@@ -611,17 +675,36 @@ class PrevisualizacionCSVTests(CarpetaCSVTemporalMixin, TestCase):
         self.assertEqual(self.client.get(reverse('calificaciones:confirmar_csv')).status_code, 405)
         self.assertEqual(self.client.get(reverse('calificaciones:cancelar_csv')).status_code, 405)
 
-    def test_duplicado_creado_despues_de_previsualizar_rechaza_la_carga(self):
+    def test_calificacion_creada_despues_de_previsualizar_se_actualiza(self):
         self.subir([{'descripcion': 'Desde CSV'}])
         instrumento = Instrumento.objects.create(codigo='CSV-TEST', mercado=Mercado.ACCIONES)
-        CalificacionLocal.objects.create(
+        manual = CalificacionLocal.objects.create(
             corredora=self.corredora, instrumento=instrumento, ejercicio=2025,
             fecha_pago=date(2025, 6, 30), secuencia_evento=500, descripcion='Ingresada a mano',
         )
         respuesta = self.client.post(reverse('calificaciones:confirmar_csv'), follow=True)
-        self.assertContains(respuesta, 'duplicados')
-        self.assertFalse(self.locales().filter(descripcion='Desde CSV').exists())
+        self.assertContains(respuesta, '0 calificaciones nuevas y 1 actualizadas')
+        manual.refresh_from_db()
+        self.assertEqual(manual.descripcion, 'Desde CSV')
+        self.assertEqual(self.locales().count(), 1)
 
+    def test_previsualizacion_marca_las_filas_que_se_actualizan(self):
+        instrumento = Instrumento.objects.create(codigo='CSV-TEST', mercado=Mercado.ACCIONES)
+        CalificacionLocal.objects.create(
+            corredora=self.corredora, instrumento=instrumento, ejercicio=2025,
+            fecha_pago=date(2025, 6, 30), secuencia_evento=500, descripcion='Existente',
+        )
+        self.subir([{'descripcion': 'Reemplazo'}, {'descripcion': 'Otra', 'secuencia_evento': '501'}])
+
+        previsualizacion = self.client.get(reverse('calificaciones:previsualizar_csv'))
+
+        self.assertEqual(
+            previsualizacion.context['resumen'],
+            {'filas': 2, 'nuevas': 1, 'actualizadas': 1, 'instrumentos_nuevos': 0},
+        )
+        self.assertContains(previsualizacion, 'Actualiza</span>', count=1)
+        self.assertContains(previsualizacion, 'Nueva</span>', count=1)
+        self.assertEqual(self.locales().get().descripcion, 'Existente')
     def test_otro_usuario_no_puede_confirmar_el_archivo_ajeno(self):
         self.subir([{'descripcion': 'Ajena'}])
         self.client.force_login(crear_usuario('analista_2', 'Analista Tributario', corredora=self.corredora))
