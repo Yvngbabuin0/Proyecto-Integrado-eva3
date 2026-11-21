@@ -4,12 +4,23 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_GET
 
 from calificaciones.models import CalificacionLocal
+from cuentas.sesion import corredora_actual
 
 from .cambios import cambios, formatear
 from .forms import FiltroEventosForm
 from .models import EventoAuditoria
 
 EVENTOS_POR_PAGINA = 50
+
+
+def eventos_visibles(request):
+    """Eventos que puede ver el usuario: todos si tiene el permiso global (Auditor); si no, solo
+    los de su corredora. Sin corredora asignada, ``corredora_actual`` responde 403: nunca se
+    muestra todo por omisión."""
+    eventos = EventoAuditoria.objects.select_related('corredora')
+    if request.user.has_perm('auditoria.ver_todas_las_corredoras'):
+        return eventos
+    return eventos.filter(corredora=corredora_actual(request))
 
 
 def con_entidad(eventos):
@@ -30,8 +41,11 @@ def con_entidad(eventos):
 @permission_required('auditoria.view_eventoauditoria', raise_exception=True)
 @require_GET
 def listado(request):
-    eventos = EventoAuditoria.objects.select_related('corredora')
-    filtro = FiltroEventosForm(request.GET or None)
+    eventos = eventos_visibles(request)
+    filtro = FiltroEventosForm(
+        request.GET or None,
+        ocultar_corredora=not request.user.has_perm('auditoria.ver_todas_las_corredoras'),
+    )
     if filtro.is_valid():
         datos = filtro.cleaned_data
         if datos['fecha']:
@@ -58,7 +72,7 @@ def listado(request):
 @permission_required('auditoria.view_eventoauditoria', raise_exception=True)
 @require_GET
 def detalle(request, pk):
-    evento = get_object_or_404(EventoAuditoria.objects.select_related('corredora'), pk=pk)
+    evento = get_object_or_404(eventos_visibles(request), pk=pk)
     con_entidad([evento])
     return render(request, 'auditoria/detalle.html', {
         'evento': evento,

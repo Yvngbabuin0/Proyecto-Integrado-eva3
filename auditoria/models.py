@@ -31,6 +31,9 @@ class EventoAuditoria(models.Model):
     class Meta:
         ordering = ['-fecha', '-pk']
         default_permissions = ('view',)
+        permissions = [
+            ('ver_todas_las_corredoras', 'Puede ver los eventos de todas las corredoras'),
+        ]
         verbose_name = 'evento de auditoría'
         verbose_name_plural = 'eventos de auditoría'
 

@@ -13,10 +13,14 @@
 
 <form method="get" class="panel filters" aria-label="Filtros de eventos">
   {% for campo in filtro %}
+    {% if not campo.field.widget.is_hidden %}
     <label class="field">
       <span>{{ campo.label }}</span>
       {{ campo }}
     </label>
+    {% else %}
+      {{ campo }}
+    {% endif %}
   {% endfor %}
   <div class="filter-actions">
     <button type="submit" class="button button--primary">Filtrar</button>
