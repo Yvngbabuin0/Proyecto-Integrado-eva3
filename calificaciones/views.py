@@ -108,18 +108,15 @@ def formulario(request, pk=None):
             })
 
     if datos is not None and form.is_valid() and detalles.is_valid():
-        # Si los factores del formulario son exactamente los calculados desde los montos,
-        # se acepta la tolerancia por redondeo; si el usuario los editó o no hay montos,
-        # la validación es estricta.
-        if not detalles.factores_iguales_a_calculados():
-            if not factores_validos(detalles.factores(), estricto=True):
-                messages.error(request, 'La suma de los factores 8 a 19 no puede superar 1')
-                return render(request, 'calificaciones/formulario.html', {
-                    'corredora': corredora,
-                    'calificacion': calificacion if pk else None,
-                    'form': form,
-                    'detalles': detalles,
-                })
+        # La suma de los factores 8 a 19 nunca puede superar 1, se hayan calculado o escrito a mano.
+        if not factores_validos(detalles.factores()):
+            messages.error(request, 'La suma de los factores 8 a 19 no puede superar 1')
+            return render(request, 'calificaciones/formulario.html', {
+                'corredora': corredora,
+                'calificacion': calificacion if pk else None,
+                'form': form,
+                'detalles': detalles,
+            })
         with transaction.atomic():
             calificacion = form.save()
             detalles.save(calificacion)

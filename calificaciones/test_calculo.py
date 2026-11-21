@@ -49,6 +49,26 @@ class FactoresDesdeMontosTests(SimpleTestCase):
         factores = factores_desde_montos({8: Decimal('100')})
         self.assertEqual(factores[9], Decimal('0.00000000'))
 
+    def test_seis_montos_iguales_suman_exactamente_uno(self):
+        # Redondeados uno por uno darían 0,16666667 x 6 = 1,00000002.
+        factores = factores_desde_montos({n: Decimal('1') for n in range(8, 14)})
+        self.assertEqual(suma_factores_8_a_19(factores), Decimal('1.00000000'))
+        self.assertEqual(
+            [factores[n] for n in range(8, 14)],
+            [Decimal('0.16666667')] * 4 + [Decimal('0.16666666')] * 2,
+        )
+
+    def test_doce_montos_distintos_suman_exactamente_uno(self):
+        factores = factores_desde_montos({n: Decimal(n * 7919) for n in range(8, 20)})
+        self.assertEqual(suma_factores_8_a_19(factores), Decimal('1.00000000'))
+        self.assertTrue(factores_validos(factores))
+
+    def test_el_ajuste_va_al_factor_con_mayor_resto(self):
+        # 2/3 = 0,666666666… y 1/3 = 0,333333333…: la unidad que falta va al 8, que tiene mayor resto.
+        factores = factores_desde_montos({8: Decimal('2'), 9: Decimal('1')})
+        self.assertEqual(factores[8], Decimal('0.66666667'))
+        self.assertEqual(factores[9], Decimal('0.33333333'))
+
 
 class SumaCeroTests(SimpleTestCase):
     def test_total_en_cero_lanza_error(self):
@@ -69,19 +89,15 @@ class ValidacionSumaTests(SimpleTestCase):
         factores = {8: Decimal('0.50000000'), 9: Decimal('0.80000000')}
         self.assertFalse(factores_validos(factores))
 
-    def test_suma_1_00000001_con_tolerancia_cero_rechazada(self):
+    def test_suma_1_00000001_rechazada(self):
         # Dos factores que suman 1,00000001: 0.50000000 + 0.50000001.
         factores = {8: Decimal('0.50000000'), 9: Decimal('0.50000001')}
-        self.assertFalse(factores_validos(factores, estricto=True))
+        self.assertFalse(factores_validos(factores))
 
-    def test_seis_montos_iguales_aceptados_con_tolerancia_por_defecto(self):
-        # Cada factor es 0,16666667 y suman 1,00000002, dentro de la tolerancia.
+    def test_seis_factores_redondeados_hacia_arriba_rechazados(self):
+        # Seis veces 0,16666667 suma 1,00000002: supera 1 y se bloquea.
         factores = {n: Decimal('0.16666667') for n in range(8, 14)}
-        self.assertTrue(factores_validos(factores))
-
-    def test_seis_montos_iguales_rechazados_con_tolerancia_cero(self):
-        factores = {n: Decimal('0.16666667') for n in range(8, 14)}
-        self.assertFalse(factores_validos(factores, estricto=True))
+        self.assertFalse(factores_validos(factores))
 
     def test_factor_mayor_a_uno_rechazado(self):
         factores = {8: Decimal('1.50000000')}
