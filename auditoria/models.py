@@ -5,6 +5,23 @@ from django.db import models
 from cuentas.models import Corredora
 
 
+class EventoAuditoriaQuerySet(models.QuerySet):
+    """QuerySet que prohíbe UPDATE y DELETE masivos."""
+
+    def update(self, **kwargs):
+        raise ValueError('No se pueden modificar eventos de auditoría (INSERT-only)')
+
+    def delete(self):
+        raise ValueError('No se pueden eliminar eventos de auditoría (INSERT-only)')
+
+
+class EventoAuditoriaManager(models.Manager):
+    """Manager que usa EventoAuditoriaQuerySet."""
+
+    def get_queryset(self):
+        return EventoAuditoriaQuerySet(self.model, using=self._db)
+
+
 class EventoAuditoria(models.Model):
     class Accion(models.TextChoices):
         CREAR = 'CREAR', 'Creación'
@@ -38,6 +55,8 @@ class EventoAuditoria(models.Model):
     estado_anterior = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
     estado_posterior = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
 
+    objects = EventoAuditoriaManager()
+
     class Meta:
         ordering = ['-fecha', '-pk']
         default_permissions = ('view',)
@@ -51,6 +70,16 @@ class EventoAuditoria(models.Model):
         if self.calificacion_id is None:
             return f'{self.get_accion_display()} · lote {self.lote_id}'
         return f'{self.get_accion_display()} · calificación {self.calificacion_id}'
+
+    def save(self, *args, **kwargs):
+        """Prohíbe UPDATE: solo permite INSERT inicial (force_insert=True o _state.adding)."""
+        if not self._state.adding and not kwargs.get('force_insert', False):
+            raise ValueError('No se pueden modificar eventos de auditoría (INSERT-only)')
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """Prohíbe DELETE de instancias individuales."""
+        raise ValueError('No se pueden eliminar eventos de auditoría (INSERT-only)')
 
 
 def estado_calificacion(calificacion, detalles=None):

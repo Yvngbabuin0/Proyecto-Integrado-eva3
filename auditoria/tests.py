@@ -362,3 +362,69 @@ class FiltradoPorCorredoraTests(TestCase):
         self.client.force_login(self.auditor)
         respuesta = self.client.get(reverse('auditoria:listado'))
         self.assertFalse(respuesta.context['filtro'].fields['corredora'].widget.is_hidden)
+
+
+class EventoAuditoriaProteccionTests(TestCase):
+    """Verifica que EventoAuditoria es estrictamente INSERT-only."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.corredora = Corredora.objects.create(rut='1-9', nombre='Corredora A')
+        cls.usuario = Usuario.objects.create_user('testuser', corredora=cls.corredora)
+        cls.usuario.groups.add(Group.objects.get(name='Analista Tributario'))
+
+    def crear_evento(self):
+        return EventoAuditoria.objects.create(
+            accion=EventoAuditoria.Accion.CREAR,
+            usuario=self.usuario,
+            usuario_nombre=self.usuario.username,
+            corredora=self.corredora,
+            estado_posterior={'descripcion': 'Test'},
+        )
+
+    def test_crear_evento_funciona(self):
+        evento = self.crear_evento()
+        self.assertIsNotNone(evento.pk)
+        self.assertEqual(EventoAuditoria.objects.count(), 1)
+
+    def test_modificar_evento_lanza_excepcion(self):
+        evento = self.crear_evento()
+        descripcion_original = evento.estado_posterior['descripcion']
+
+        with self.assertRaises(ValueError) as cm:
+            evento.estado_posterior = {'descripcion': 'Modificado'}
+            evento.save()
+
+        self.assertIn('INSERT-only', str(cm.exception))
+        # Verifica que no se alteró en BD
+        evento.refresh_from_db()
+        self.assertEqual(evento.estado_posterior['descripcion'], descripcion_original)
+
+    def test_eliminar_evento_lanza_excepcion(self):
+        evento = self.crear_evento()
+
+        with self.assertRaises(ValueError) as cm:
+            evento.delete()
+
+        self.assertIn('INSERT-only', str(cm.exception))
+        # Verifica que sigue existiendo en BD
+        self.assertTrue(EventoAuditoria.objects.filter(pk=evento.pk).exists())
+
+    def test_update_masivo_lanza_excepcion(self):
+        evento = self.crear_evento()
+
+        with self.assertRaises(ValueError) as cm:
+            EventoAuditoria.objects.filter(pk=evento.pk).update(estado_posterior={'descripcion': 'Modificado'})
+
+        self.assertIn('INSERT-only', str(cm.exception))
+        evento.refresh_from_db()
+        self.assertEqual(evento.estado_posterior['descripcion'], 'Test')
+
+    def test_delete_masivo_lanza_excepcion(self):
+        evento = self.crear_evento()
+
+        with self.assertRaises(ValueError) as cm:
+            EventoAuditoria.objects.filter(pk=evento.pk).delete()
+
+        self.assertIn('INSERT-only', str(cm.exception))
+        self.assertTrue(EventoAuditoria.objects.filter(pk=evento.pk).exists())
