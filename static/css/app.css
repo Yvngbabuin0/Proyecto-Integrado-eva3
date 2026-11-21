@@ -140,6 +140,8 @@ th.sticky-col { background: var(--bg); }
 .badge--baja { background: var(--warning-bg); color: var(--warning); border-color: #fedf89; }
 .badge--carga { background: var(--success-bg); color: var(--success); border-color: #abefc6; }
 .badge--rechazo { background: var(--error-bg); color: var(--error); border-color: #fecdca; }
+.badge--exitoso { background: var(--success-bg); color: var(--success); border-color: #abefc6; }
+.badge--rechazado { background: var(--error-bg); color: var(--error); border-color: #fecdca; }
 .text-muted { color: var(--muted); }
 .text-success { color: var(--success); }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 12px; border-top: 1px solid var(--line); }
@@ -170,6 +172,18 @@ th.sticky-col { background: var(--bg); }
 .concept-table input { width: 100%; min-width: 120px; height: 34px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; text-align: right; }
 .concept-table tr.separador td { background: var(--bg); color: var(--muted); font-size: 12px; font-weight: 600; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Indicador de suma F8-F19 */
+.suma-indicator {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 12px 20px; background: var(--info-bg); border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.suma-label { font-size: 13px; font-weight: 500; color: var(--muted); }
+.suma-value { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 14px; }
+.suma-ok { color: var(--success); }
+.suma-error { color: var(--error); }
+.suma-error-msg { font-size: 12px; color: var(--error); }
 
 /* Confirmación de baja */
 .record-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 16px 0; }

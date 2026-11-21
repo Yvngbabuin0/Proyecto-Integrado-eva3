@@ -21,6 +21,7 @@
     <div><span>Corredora</span><strong>{{ evento.corredora.nombre }}</strong></div>
     <div><span>{% if evento.calificacion_id %}Calificación{% else %}Lote{% endif %}</span><strong>{{ evento.entidad }}</strong></div>
     <div><span>Origen</span><strong>{{ evento.origen }}</strong></div>
+    <div><span>Resultado</span><strong>{{ evento.get_resultado_display }}</strong></div>
     {% if evento.lote and evento.calificacion_id %}
       <div><span>Lote de carga</span><strong>Lote {{ evento.lote_id }} · {{ evento.lote.nombre_original }}</strong></div>
     {% endif %}

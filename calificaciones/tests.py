@@ -679,6 +679,73 @@ class CalculoBotonTests(TestCase):
 
 
 
+    # -------- Pruebas para Tarea #6 (Detalles del cálculo) --------
+
+    def test_enter_dispara_guardar_no_calcular(self):
+        """POST sin accion='calcular' (simulando Enter) debe guardar, no calcular."""
+        datos = {
+            'mercado': 'ACC', 'ejercicio': '2025', 'codigo_instrumento': 'ENTER',
+            'secuencia_evento': '100001', 'fecha_pago': '2025-01-01',
+            'numero_dividendo': '0', 'descripcion': 'Enter guarda',
+            'valor_historico': '0', 'factor_actualizacion': '0',
+            'monto_8': '100', 'monto_9': '200',
+        }
+        uri = reverse('calificaciones:ingresar')
+        # Sin 'accion': simula Enter en un input -> botón oculto 'guardar'
+        respuesta = self.client.post(uri, datos, follow=True)
+        self.assertRedirects(respuesta, reverse('calificaciones:mantenedor'))
+        calif = CalificacionLocal.objects.get(descripcion='Enter guarda')
+        # Los factores vienen en blanco (0), no calculados
+        self.assertEqual(calif.detalles.get(concepto_id=8).factor, Decimal('0.00000000'))
+        self.assertEqual(calif.detalles.get(concepto_id=9).factor, Decimal('0.00000000'))
+
+    def test_calcular_y_guardar_pasa_la_validacion_estricta(self):
+        """Calcular -> Guardar con seis montos iguales: los factores suman exactamente 1, sin tolerancia."""
+        uri = reverse('calificaciones:ingresar')
+        calculo = self.client.post(uri, self.datos_seis_montos_iguales(accion='calcular'))
+        self.assertContains(calculo, 'value="0,16666666"')
+        datos = self.datos_seis_montos_iguales()
+        datos.update({clave: valor for clave, valor in calculo.context['detalles'].data.items() if clave.startswith('factor_')})
+        respuesta = self.client.post(uri, datos)
+        self.assertRedirects(respuesta, reverse('calificaciones:mantenedor'))
+        calificacion = CalificacionLocal.objects.get(descripcion='Seis montos iguales')
+        suma = sum(d.factor for d in calificacion.detalles.filter(concepto_id__in=range(8, 20)))
+        self.assertEqual(suma, Decimal('1.00000000'))
+
+    def test_ingreso_manual_factores_suma_1_00000002_rechazado(self):
+        """Ingreso manual de factores con suma 1.00000002 (sin calcular) se rechaza: no hay tolerancia."""
+        factores = {f'factor_{n}': '0,16666667' for n in range(8, 14)}
+        respuesta = self.client.post(reverse('calificaciones:ingresar'), self.datos_seis_montos_iguales(**factores))
+        self.assertContains(respuesta, 'La suma de los factores 8 a 19 no puede superar 1')
+        self.assertFalse(CalificacionLocal.objects.exists())
+
+    def test_el_primer_boton_del_formulario_guarda(self):
+        # Enter usa el primer botón de envío del formulario: debe ser el de guardar, y visible para el navegador.
+        html = self.client.get(reverse('calificaciones:ingresar')).content.decode()
+        formulario = html[html.index('<form method="post" novalidate>'):]
+        primer_boton = formulario[formulario.index('<button'):formulario.index('</button>')]
+        self.assertIn('value="guardar"', primer_boton)
+        self.assertIn('class="visually-hidden"', primer_boton)
+        self.assertNotIn('display:none', primer_boton)
+
+    def test_accion_guardar_graba_sin_calcular(self):
+        respuesta = self.client.post(reverse('calificaciones:ingresar'), self.datos_seis_montos_iguales(accion='guardar'))
+        self.assertRedirects(respuesta, reverse('calificaciones:mantenedor'))
+        calificacion = CalificacionLocal.objects.get(descripcion='Seis montos iguales')
+        self.assertEqual(calificacion.detalles.get(concepto_id=8).factor, Decimal('0.00000000'))
+
+    def test_indicador_de_suma_solo_aparece_al_calcular(self):
+        uri = reverse('calificaciones:ingresar')
+        self.assertNotContains(self.client.get(uri), 'suma-indicator')
+        con_error = self.client.post(uri, self.datos_seis_montos_iguales(factor_8='0,9', factor_9='0,9'))
+        self.assertContains(con_error, 'no puede superar 1')
+        self.assertNotContains(con_error, 'suma-indicator')
+
+        calculo = self.client.post(uri, self.datos_seis_montos_iguales(accion='calcular'))
+        self.assertContains(calculo, 'class="suma-value suma-ok"')
+        self.assertContains(calculo, '1,00000000')
+
+
 class CatalogoConceptosTests(TestCase):
     def test_los_30_conceptos_tienen_nombres_distintos(self):
         from .models import ConceptoTributario

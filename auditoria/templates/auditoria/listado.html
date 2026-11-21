@@ -48,6 +48,7 @@
             <th>Corredora</th>
             <th>Calificación o lote</th>
             <th>Origen</th>
+            <th>Resultado</th>
             <th><span class="visually-hidden">Detalle</span></th>
           </tr>
         </thead>
@@ -60,6 +61,7 @@
               <td>{{ evento.corredora.nombre }}</td>
               <td><strong>{{ evento.entidad }}</strong></td>
               <td>{{ evento.origen }}</td>
+              <td><span class="badge badge--{{ evento.resultado|lower }}">{{ evento.get_resultado_display }}</span></td>
               <td><a href="{% url 'auditoria:detalle' evento.pk %}" class="button button--small">Ver</a></td>
             </tr>
           {% endfor %}

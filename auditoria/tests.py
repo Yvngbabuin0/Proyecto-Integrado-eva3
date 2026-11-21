@@ -2,13 +2,14 @@ from datetime import date
 from unittest import mock
 
 from django.contrib.auth.models import Group
+from django.db import transaction
 from django.test import TestCase
 from django.urls import reverse
 
 from calificaciones.models import CONCEPTOS, CalificacionLocal, Instrumento, Mercado
 from cuentas.models import Corredora, Usuario
 
-from .models import EventoAuditoria
+from .models import EventoAuditoria, EventoInmutableError
 
 
 def crear_usuario(username, rol, corredora=None, **campos):
@@ -362,3 +363,130 @@ class FiltradoPorCorredoraTests(TestCase):
         self.client.force_login(self.auditor)
         respuesta = self.client.get(reverse('auditoria:listado'))
         self.assertFalse(respuesta.context['filtro'].fields['corredora'].widget.is_hidden)
+
+
+class EventoAuditoriaProteccionTests(TestCase):
+    """Verifica que EventoAuditoria es estrictamente INSERT-only."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.corredora = Corredora.objects.create(rut='1-9', nombre='Corredora A')
+        cls.usuario = Usuario.objects.create_user('testuser', corredora=cls.corredora)
+        cls.usuario.groups.add(Group.objects.get(name='Analista Tributario'))
+
+    def crear_evento(self):
+        return EventoAuditoria.objects.create(
+            accion=EventoAuditoria.Accion.CREAR,
+            usuario=self.usuario,
+            usuario_nombre=self.usuario.username,
+            corredora=self.corredora,
+            estado_posterior={'descripcion': 'Test'},
+        )
+
+    def test_crear_evento_funciona(self):
+        evento = self.crear_evento()
+        self.assertIsNotNone(evento.pk)
+        self.assertEqual(EventoAuditoria.objects.count(), 1)
+
+    def test_modificar_evento_lanza_excepcion(self):
+        evento = self.crear_evento()
+        descripcion_original = evento.estado_posterior['descripcion']
+
+        with self.assertRaises(EventoInmutableError) as cm:
+            evento.estado_posterior = {'descripcion': 'Modificado'}
+            evento.save()
+
+        self.assertIn('INSERT-only', str(cm.exception))
+        # Verifica que no se alteró en BD
+        evento.refresh_from_db()
+        self.assertEqual(evento.estado_posterior['descripcion'], descripcion_original)
+
+    def test_eliminar_evento_lanza_excepcion(self):
+        evento = self.crear_evento()
+
+        with self.assertRaises(EventoInmutableError) as cm:
+            evento.delete()
+
+        self.assertIn('INSERT-only', str(cm.exception))
+        # Verifica que sigue existiendo en BD
+        self.assertTrue(EventoAuditoria.objects.filter(pk=evento.pk).exists())
+
+    def test_update_masivo_lanza_excepcion(self):
+        evento = self.crear_evento()
+
+        with self.assertRaises(EventoInmutableError) as cm:
+            EventoAuditoria.objects.filter(pk=evento.pk).update(estado_posterior={'descripcion': 'Modificado'})
+
+        self.assertIn('INSERT-only', str(cm.exception))
+        evento.refresh_from_db()
+        self.assertEqual(evento.estado_posterior['descripcion'], 'Test')
+
+    def test_delete_masivo_lanza_excepcion(self):
+        evento = self.crear_evento()
+
+        with self.assertRaises(EventoInmutableError) as cm:
+            EventoAuditoria.objects.filter(pk=evento.pk).delete()
+
+        self.assertIn('INSERT-only', str(cm.exception))
+        self.assertTrue(EventoAuditoria.objects.filter(pk=evento.pk).exists())
+
+    def test_manager_base_tambien_bloquea(self):
+        evento = self.crear_evento()
+
+        with self.assertRaises(EventoInmutableError):
+            EventoAuditoria._base_manager.filter(pk=evento.pk).update(usuario_nombre='otro')
+        with self.assertRaises(EventoInmutableError):
+            EventoAuditoria._base_manager.filter(pk=evento.pk).delete()
+
+        evento.refresh_from_db()
+        self.assertEqual(evento.usuario_nombre, self.usuario.username)
+
+    def test_bulk_update_y_borrado_por_relacion_bloqueados(self):
+        evento = self.crear_evento()
+
+        # bulk_update abre su propia transacción: se aísla para que el error no rompa la de la prueba.
+        with self.assertRaises(EventoInmutableError), transaction.atomic():
+            EventoAuditoria.objects.bulk_update([evento], ['usuario_nombre'])
+        with self.assertRaises(EventoInmutableError):
+            self.corredora.eventos_auditoria.all().delete()
+        self.assertTrue(EventoAuditoria.objects.filter(pk=evento.pk).exists())
+
+
+class ResultadoTests(TestCase):
+    """Cada evento muestra si la operación fue exitosa o rechazada, y se puede filtrar por eso."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.corredora = Corredora.objects.create(rut='1-9', nombre='Corredora A')
+        cls.auditor = crear_usuario('auditor', 'Auditor')
+        cls.analista = crear_usuario('analista', 'Analista Tributario', corredora=cls.corredora)
+        comunes = {'usuario': cls.analista, 'usuario_nombre': 'analista', 'corredora': cls.corredora}
+        cls.creacion = EventoAuditoria.objects.create(accion=EventoAuditoria.Accion.CREAR, calificacion_id=1, **comunes)
+        cls.rechazo = EventoAuditoria.objects.create(accion=EventoAuditoria.Accion.RECHAZO, **comunes)
+
+    def setUp(self):
+        self.client.force_login(self.auditor)
+
+    def test_resultado_segun_la_accion(self):
+        self.assertEqual(self.creacion.resultado, EventoAuditoria.Resultado.EXITOSO)
+        self.assertEqual(self.rechazo.resultado, EventoAuditoria.Resultado.RECHAZADO)
+        for accion in EventoAuditoria.Accion.values:
+            with self.subTest(accion=accion):
+                esperado = 'Rechazado' if accion == EventoAuditoria.Accion.RECHAZO else 'Exitoso'
+                self.assertEqual(EventoAuditoria(accion=accion).get_resultado_display(), esperado)
+
+    def test_listado_muestra_la_columna_resultado(self):
+        respuesta = self.client.get(reverse('auditoria:listado'))
+        self.assertContains(respuesta, '<th>Resultado</th>', html=True)
+        self.assertContains(respuesta, '<span class="badge badge--exitoso">Exitoso</span>', html=True)
+        self.assertContains(respuesta, '<span class="badge badge--rechazado">Rechazado</span>', html=True)
+
+    def test_detalle_muestra_el_resultado(self):
+        respuesta = self.client.get(reverse('auditoria:detalle', args=[self.rechazo.pk]))
+        self.assertContains(respuesta, '<div><span>Resultado</span><strong>Rechazado</strong></div>', html=True)
+
+    def test_filtrar_por_resultado(self):
+        for resultado, esperados in [('RECHAZADO', [self.rechazo]), ('EXITOSO', [self.creacion]), ('', [self.rechazo, self.creacion])]:
+            with self.subTest(resultado=resultado):
+                respuesta = self.client.get(reverse('auditoria:listado'), {'resultado': resultado})
+                self.assertEqual(list(respuesta.context['pagina'].object_list), esperados)

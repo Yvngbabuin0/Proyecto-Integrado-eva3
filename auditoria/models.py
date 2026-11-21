@@ -5,6 +5,20 @@ from django.db import models
 from cuentas.models import Corredora
 
 
+class EventoInmutableError(Exception):
+    """Intento de modificar o eliminar un evento de auditoría: el log es de solo inserción."""
+
+
+class EventoAuditoriaQuerySet(models.QuerySet):
+    """QuerySet que prohíbe UPDATE y DELETE masivos."""
+
+    def update(self, **kwargs):
+        raise EventoInmutableError('No se pueden modificar eventos de auditoría (INSERT-only)')
+
+    def delete(self):
+        raise EventoInmutableError('No se pueden eliminar eventos de auditoría (INSERT-only)')
+
+
 class EventoAuditoria(models.Model):
     class Accion(models.TextChoices):
         CREAR = 'CREAR', 'Creación'
@@ -12,6 +26,14 @@ class EventoAuditoria(models.Model):
         BAJA = 'BAJA', 'Baja lógica'
         CARGA = 'CARGA', 'Carga CSV'
         RECHAZO = 'RECHAZO', 'Carga rechazada'
+
+    class Resultado(models.TextChoices):
+        EXITOSO = 'EXITOSO', 'Exitoso'
+        RECHAZADO = 'RECHAZADO', 'Rechazado'
+
+    # Acciones que registran una operación que no se completó. El resultado se deduce de la
+    # acción: así no hace falta otra columna en la base ni se puede guardar uno incoherente.
+    ACCIONES_RECHAZADAS = frozenset({Accion.RECHAZO})
 
     accion = models.CharField(max_length=10, choices=Accion.choices)
     fecha = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -38,8 +60,13 @@ class EventoAuditoria(models.Model):
     estado_anterior = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
     estado_posterior = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
 
+    objects = EventoAuditoriaQuerySet.as_manager()
+
     class Meta:
         ordering = ['-fecha', '-pk']
+        # Django usa el manager base en operaciones internas; sin esto, _base_manager.update()
+        # se saltaría el bloqueo.
+        base_manager_name = 'objects'
         default_permissions = ('view',)
         permissions = [
             ('ver_todas_las_corredoras', 'Puede ver los eventos de todas las corredoras'),
@@ -51,6 +78,25 @@ class EventoAuditoria(models.Model):
         if self.calificacion_id is None:
             return f'{self.get_accion_display()} · lote {self.lote_id}'
         return f'{self.get_accion_display()} · calificación {self.calificacion_id}'
+
+    @property
+    def resultado(self):
+        if self.accion in self.ACCIONES_RECHAZADAS:
+            return self.Resultado.RECHAZADO
+        return self.Resultado.EXITOSO
+
+    def get_resultado_display(self):
+        return self.Resultado(self.resultado).label
+
+    def save(self, *args, **kwargs):
+        """Prohíbe UPDATE: solo permite INSERT inicial (force_insert=True o _state.adding)."""
+        if not self._state.adding and not kwargs.get('force_insert', False):
+            raise EventoInmutableError('No se pueden modificar eventos de auditoría (INSERT-only)')
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """Prohíbe DELETE de instancias individuales."""
+        raise EventoInmutableError('No se pueden eliminar eventos de auditoría (INSERT-only)')
 
 
 def estado_calificacion(calificacion, detalles=None):
