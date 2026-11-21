@@ -17,7 +17,7 @@ def eventos_visibles(request):
     """Eventos que puede ver el usuario: todos si tiene el permiso global (Auditor); si no, solo
     los de su corredora. Sin corredora asignada, ``corredora_actual`` responde 403: nunca se
     muestra todo por omisión."""
-    eventos = EventoAuditoria.objects.select_related('corredora')
+    eventos = EventoAuditoria.objects.select_related('corredora', 'lote')
     if request.user.has_perm('auditoria.ver_todas_las_corredoras'):
         return eventos
     return eventos.filter(corredora=corredora_actual(request))
@@ -25,12 +25,17 @@ def eventos_visibles(request):
 
 def con_entidad(eventos):
     """Agrega a cada evento la calificación afectada ("JEAP · evento 100000809") y su origen."""
-    ids = {evento.calificacion_id for evento in eventos}
+    ids = {evento.calificacion_id for evento in eventos if evento.calificacion_id is not None}
     calificaciones = {
         c.pk: f'{c.instrumento.codigo} · evento {c.secuencia_evento}'
         for c in CalificacionLocal.objects.filter(pk__in=ids).select_related('instrumento')
     }
     for evento in eventos:
+        if evento.calificacion_id is None:
+            # Evento de un lote completo (carga o rechazo de un CSV).
+            evento.entidad = f'Lote {evento.lote_id} · {evento.lote.nombre_original}' if evento.lote_id else '—'
+            evento.origen = 'Archivo'
+            continue
         evento.entidad = calificaciones.get(evento.calificacion_id, f'Calificación {evento.calificacion_id}')
         estado = evento.estado_posterior or evento.estado_anterior or {}
         evento.origen = formatear('forma_ingreso', estado.get('forma_ingreso'))
