@@ -13,7 +13,7 @@ class FiltroEventosForm(forms.Form):
     )
 
     def __init__(self, *args, **kwargs):
-        user_corredora = kwargs.pop('user_corredora', None)
+        ocultar_corredora = kwargs.pop('ocultar_corredora', False)
         super().__init__(*args, **kwargs)
-        if user_corredora:
+        if ocultar_corredora:
             self.fields['corredora'].widget = forms.HiddenInput()
