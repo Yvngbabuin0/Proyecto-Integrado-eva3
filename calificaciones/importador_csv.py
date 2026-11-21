@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import DecimalValidator
 from django.db import transaction
 
-from .models import CONCEPTOS, CalificacionBase, CalificacionLocal, DetalleLocal, Instrumento, Mercado
+from .models import CONCEPTOS, CONCEPTOS_SUMA, CalificacionBase, CalificacionLocal, DetalleLocal, Instrumento, Mercado
 
 MAX_FILAS_CSV = 5000
 
@@ -159,6 +159,12 @@ def _leer_csv(archivo):
                 if not 0 <= factor <= 1:
                     raise ErrorCSV(f'Fila {linea}: factor_{numero} debe estar entre 0 y 1.')
                 detalles.append((numero, monto, factor))
+            suma = sum((factor for numero, _, factor in detalles if numero in CONCEPTOS_SUMA), Decimal(0))
+            if suma > 1:
+                raise ErrorCSV(
+                    f'Fila {linea}: la suma de los factores 8 a 19 es {suma:.8f}'.replace('.', ',')
+                    + ' y no puede superar 1.'
+                )
 
             clave = (codigo, mercado, ejercicio, secuencia)
             if clave in claves_vistas:
