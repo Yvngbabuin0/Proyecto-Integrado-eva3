@@ -516,3 +516,18 @@ class CalculoBotonTests(TestCase):
         self.assertContains(respuesta2, 'no puede superar 1')
 
 
+
+
+class CatalogoConceptosTests(TestCase):
+    def test_los_30_conceptos_tienen_nombres_distintos(self):
+        from .models import ConceptoTributario
+
+        nombres = list(ConceptoTributario.objects.values_list('nombre', flat=True))
+        self.assertEqual(len(nombres), 30)
+        self.assertEqual(len(set(nombres)), 30)
+
+    def test_creditos_por_ipe_indican_su_grupo(self):
+        from .models import ConceptoTributario
+
+        self.assertIn('01.01.2017', ConceptoTributario.objects.get(numero=28).nombre)
+        self.assertIn('31.12.2016', ConceptoTributario.objects.get(numero=33).nombre)
