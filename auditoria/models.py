@@ -27,6 +27,14 @@ class EventoAuditoria(models.Model):
         CARGA = 'CARGA', 'Carga CSV'
         RECHAZO = 'RECHAZO', 'Carga rechazada'
 
+    class Resultado(models.TextChoices):
+        EXITOSO = 'EXITOSO', 'Exitoso'
+        RECHAZADO = 'RECHAZADO', 'Rechazado'
+
+    # Acciones que registran una operación que no se completó. El resultado se deduce de la
+    # acción: así no hace falta otra columna en la base ni se puede guardar uno incoherente.
+    ACCIONES_RECHAZADAS = frozenset({Accion.RECHAZO})
+
     accion = models.CharField(max_length=10, choices=Accion.choices)
     fecha = models.DateTimeField(auto_now_add=True, db_index=True)
     usuario = models.ForeignKey(
@@ -70,6 +78,15 @@ class EventoAuditoria(models.Model):
         if self.calificacion_id is None:
             return f'{self.get_accion_display()} · lote {self.lote_id}'
         return f'{self.get_accion_display()} · calificación {self.calificacion_id}'
+
+    @property
+    def resultado(self):
+        if self.accion in self.ACCIONES_RECHAZADAS:
+            return self.Resultado.RECHAZADO
+        return self.Resultado.EXITOSO
+
+    def get_resultado_display(self):
+        return self.Resultado(self.resultado).label
 
     def save(self, *args, **kwargs):
         """Prohíbe UPDATE: solo permite INSERT inicial (force_insert=True o _state.adding)."""

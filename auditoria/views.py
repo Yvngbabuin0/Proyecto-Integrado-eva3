@@ -57,6 +57,10 @@ def listado(request):
             eventos = eventos.filter(fecha__date=datos['fecha'])
         if datos['accion']:
             eventos = eventos.filter(accion=datos['accion'])
+        if datos['resultado'] == EventoAuditoria.Resultado.RECHAZADO:
+            eventos = eventos.filter(accion__in=EventoAuditoria.ACCIONES_RECHAZADAS)
+        elif datos['resultado'] == EventoAuditoria.Resultado.EXITOSO:
+            eventos = eventos.exclude(accion__in=EventoAuditoria.ACCIONES_RECHAZADAS)
         if datos['corredora']:
             eventos = eventos.filter(corredora=datos['corredora'])
 

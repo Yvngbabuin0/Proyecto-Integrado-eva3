@@ -450,3 +450,43 @@ class EventoAuditoriaProteccionTests(TestCase):
         with self.assertRaises(EventoInmutableError):
             self.corredora.eventos_auditoria.all().delete()
         self.assertTrue(EventoAuditoria.objects.filter(pk=evento.pk).exists())
+
+
+class ResultadoTests(TestCase):
+    """Cada evento muestra si la operación fue exitosa o rechazada, y se puede filtrar por eso."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.corredora = Corredora.objects.create(rut='1-9', nombre='Corredora A')
+        cls.auditor = crear_usuario('auditor', 'Auditor')
+        cls.analista = crear_usuario('analista', 'Analista Tributario', corredora=cls.corredora)
+        comunes = {'usuario': cls.analista, 'usuario_nombre': 'analista', 'corredora': cls.corredora}
+        cls.creacion = EventoAuditoria.objects.create(accion=EventoAuditoria.Accion.CREAR, calificacion_id=1, **comunes)
+        cls.rechazo = EventoAuditoria.objects.create(accion=EventoAuditoria.Accion.RECHAZO, **comunes)
+
+    def setUp(self):
+        self.client.force_login(self.auditor)
+
+    def test_resultado_segun_la_accion(self):
+        self.assertEqual(self.creacion.resultado, EventoAuditoria.Resultado.EXITOSO)
+        self.assertEqual(self.rechazo.resultado, EventoAuditoria.Resultado.RECHAZADO)
+        for accion in EventoAuditoria.Accion.values:
+            with self.subTest(accion=accion):
+                esperado = 'Rechazado' if accion == EventoAuditoria.Accion.RECHAZO else 'Exitoso'
+                self.assertEqual(EventoAuditoria(accion=accion).get_resultado_display(), esperado)
+
+    def test_listado_muestra_la_columna_resultado(self):
+        respuesta = self.client.get(reverse('auditoria:listado'))
+        self.assertContains(respuesta, '<th>Resultado</th>', html=True)
+        self.assertContains(respuesta, '<span class="badge badge--exitoso">Exitoso</span>', html=True)
+        self.assertContains(respuesta, '<span class="badge badge--rechazado">Rechazado</span>', html=True)
+
+    def test_detalle_muestra_el_resultado(self):
+        respuesta = self.client.get(reverse('auditoria:detalle', args=[self.rechazo.pk]))
+        self.assertContains(respuesta, '<div><span>Resultado</span><strong>Rechazado</strong></div>', html=True)
+
+    def test_filtrar_por_resultado(self):
+        for resultado, esperados in [('RECHAZADO', [self.rechazo]), ('EXITOSO', [self.creacion]), ('', [self.rechazo, self.creacion])]:
+            with self.subTest(resultado=resultado):
+                respuesta = self.client.get(reverse('auditoria:listado'), {'resultado': resultado})
+                self.assertEqual(list(respuesta.context['pagina'].object_list), esperados)
