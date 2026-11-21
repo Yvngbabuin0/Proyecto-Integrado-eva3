@@ -154,20 +154,6 @@ class DetallesForm(forms.Form):
         """Factores 8 a 19 del formulario, ya limpios, como Decimals."""
         return {n: self.cleaned_data.get(f'factor_{n}') or Decimal(0) for n in CONCEPTOS_SUMA}
 
-    def factores_iguales_a_calculados(self):
-        """True si los factores 8 a 33 del formulario son exactamente los calculados.
-
-        Los factores 34 a 37 son de ingreso directo y no se calculan, así que no
-        entran en la comparación. ``factores_calculados`` lanza
-        :class:`SumaCeroError` cuando no hay montos, así que aquí se captura y se
-        devuelve ``False`` (no hay factores calculados con los que comparar).
-        """
-        try:
-            calculados = self.factores_calculados()
-        except SumaCeroError:
-            return False
-        return {n: self.cleaned_data.get(f'factor_{n}') or Decimal(0) for n in CONCEPTOS_CON_FORMULA} == calculados
-
     def rellenar_factores(self, factores):
         """Rellena los factores 8 a 33 en el POST para que el formulario los muestre.
 
