@@ -197,13 +197,17 @@ def _instrumentos_existentes(registros):
 
 
 def _verificar_duplicados(registros, corredora, instrumentos):
-    """Rechaza el archivo si alguna fila ya existe como calificación local de la corredora."""
+    """Rechaza el archivo si alguna fila ya existe como calificación local activa de la corredora.
+
+    Las dadas de baja no cuentan: se conservan como histórico y se pueden volver a cargar.
+    """
     ids_existentes = [instrumento.pk for instrumento in instrumentos.values()]
     if not ids_existentes:
         return
     claves_existentes = set(
         CalificacionLocal.objects.filter(
             corredora=corredora,
+            activa=True,
             instrumento_id__in=ids_existentes,
         ).values_list('instrumento__codigo', 'instrumento__mercado', 'ejercicio', 'secuencia_evento')
     )

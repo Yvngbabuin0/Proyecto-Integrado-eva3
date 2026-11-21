@@ -634,3 +634,18 @@ class PrevisualizacionCSVTests(CarpetaCSVTemporalMixin, TestCase):
         self.assertEqual(self.client.get(reverse('calificaciones:previsualizar_csv')).status_code, 403)
         self.assertEqual(self.client.post(reverse('calificaciones:confirmar_csv')).status_code, 403)
 
+
+class DuplicadosCSVTests(CarpetaCSVTemporalMixin, TestCase):
+    def test_una_calificacion_dada_de_baja_se_puede_volver_a_cargar(self):
+        corredora = Corredora.objects.create(rut='3-5', nombre='Corredora CSV')
+        self.client.force_login(crear_usuario('analista_csv', 'Analista Tributario', corredora=corredora))
+        instrumento = Instrumento.objects.create(codigo='CSV-TEST', mercado=Mercado.ACCIONES)
+        CalificacionLocal.objects.create(
+            corredora=corredora, instrumento=instrumento, ejercicio=2025, fecha_pago=date(2025, 6, 30),
+            secuencia_evento=500, descripcion='Dada de baja', activa=False,
+        )
+        respuesta = self.client.post(reverse('calificaciones:cargar_csv'), {'archivo': archivo_csv([{'descripcion': 'Nueva'}])})
+        self.assertRedirects(respuesta, reverse('calificaciones:previsualizar_csv'))
+        self.client.post(reverse('calificaciones:confirmar_csv'))
+        self.assertTrue(CalificacionLocal.objects.filter(descripcion='Nueva', activa=True).exists())
+        self.assertTrue(CalificacionLocal.objects.filter(descripcion='Dada de baja', activa=False).exists())
