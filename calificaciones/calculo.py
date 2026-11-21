@@ -12,7 +12,7 @@ y se aplica a los conceptos 8 a 33. Los conceptos 34 a 37 no tienen fórmula
 (veáse :data:`FACTORES_SIN_FORMULA_DEFAULT`).
 """
 
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 
 # Conceptos cuyos factores se calculan con la fórmula del HDU (8 a 33).
 CONCEPTOS_CON_FORMULA = range(8, 34)
@@ -77,7 +77,28 @@ def factores_desde_montos(montos: dict) -> dict:
     for numero in CONCEPTOS_CON_FORMULA:
         monto = montos.get(numero, Decimal(0))
         factores[numero] = _redondear(monto / suma)
+    factores.update(_repartir_suma(montos, suma))
     return factores
+
+
+def _repartir_suma(montos: dict, suma: Decimal) -> dict:
+    """Factores 8 a 19 redondeados a 8 decimales de modo que sumen exactamente 1.
+
+    Redondear cada factor por separado puede hacer que la suma pase de 1: con
+    seis montos iguales, cada factor queda en 0,16666667 y suman 1,00000002.
+    Para evitarlo se usa el método del mayor resto: cada factor se trunca a 8
+    decimales y las unidades del último decimal que faltan para llegar a 1 se
+    entregan a los factores con mayor parte truncada (si empatan, al concepto
+    de número menor). Cuando el redondeo normal ya suma 1, como en el ejemplo
+    del HDU, el resultado es el mismo que con ``ROUND_HALF_UP``.
+    """
+    exactos = {n: montos.get(n, Decimal(0)) / suma for n in CONCEPTOS_SUMA}
+    truncados = {n: valor.quantize(DECIMALES_FACTOR, rounding=ROUND_DOWN) for n, valor in exactos.items()}
+    faltantes = int((SUMA_FACTORES_MAXIMA - sum(truncados.values())) / DECIMALES_FACTOR)
+    por_resto = sorted(CONCEPTOS_SUMA, key=lambda n: (-(exactos[n] - truncados[n]), n))
+    for numero in por_resto[:faltantes]:
+        truncados[numero] += DECIMALES_FACTOR
+    return truncados
 
 
 def suma_factores_8_a_19(factores: dict) -> Decimal:
