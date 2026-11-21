@@ -259,7 +259,6 @@ class ConsultaLegibleTests(TestCase):
         self.assertEqual(respuesta.status_code, 200)
 
         # Other users without the permission get 403
-        from django.contrib.auth.models import Group
         sin_permiso = Usuario.objects.create_user('sin_permiso', corredora=self.corredora_a)
         # Don't add any group
         self.client.force_login(sin_permiso)
@@ -344,3 +343,22 @@ class FiltradoPorCorredoraTests(TestCase):
         field = respuesta.context['filtro'].fields['corredora']
         from django import forms
         self.assertIsInstance(field.widget, forms.HiddenInput)
+
+    def test_corredor_o_analista_sin_corredora_asignada_reciben_403(self):
+        evento = self._crear_evento(self.analista_a, self.corredora_a, 'Evento A')
+        for rol in ('Corredor', 'Analista Tributario'):
+            with self.subTest(rol=rol):
+                self.client.force_login(crear_usuario(f'sin_corredora_{rol}', rol))
+                self.assertEqual(self.client.get(reverse('auditoria:listado')).status_code, 403)
+                self.assertEqual(self.client.get(reverse('auditoria:detalle', args=[evento.pk])).status_code, 403)
+
+    def test_solo_el_auditor_tiene_el_permiso_global(self):
+        self.assertTrue(self.auditor.has_perm('auditoria.ver_todas_las_corredoras'))
+        for usuario in (self.analista_a, self.corredor_a):
+            with self.subTest(usuario=usuario.username):
+                self.assertFalse(usuario.has_perm('auditoria.ver_todas_las_corredoras'))
+
+    def test_auditor_ve_el_filtro_de_corredora(self):
+        self.client.force_login(self.auditor)
+        respuesta = self.client.get(reverse('auditoria:listado'))
+        self.assertFalse(respuesta.context['filtro'].fields['corredora'].widget.is_hidden)
