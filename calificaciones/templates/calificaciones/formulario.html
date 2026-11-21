@@ -26,8 +26,9 @@
 <form method="post" novalidate>
   {% csrf_token %}
   {{ form.non_field_errors }}
-  <!-- Botón oculto para que Enter dispare "Guardar" (el primer submit del form) -->
-  <button type="submit" name="accion" value="guardar" style="display:none"></button>
+  {# Enter envía el formulario con el primer botón: este, que guarda. No se usa display:none #}
+  {# porque algunos navegadores no toman un botón oculto así como botón por defecto. #}
+  <button type="submit" name="accion" value="guardar" class="visually-hidden" tabindex="-1" aria-hidden="true">Guardar calificación</button>
 
   <section class="panel">
     <div class="form-section">
