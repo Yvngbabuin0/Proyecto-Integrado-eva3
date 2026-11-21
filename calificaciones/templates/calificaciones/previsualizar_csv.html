@@ -9,13 +9,14 @@
   <div>
     <p class="eyebrow">Carga masiva · Previsualización</p>
     <h1>{{ nombre }}</h1>
-    <p>El archivo es válido. Revisa los datos y confirma la carga; todavía no se ha guardado nada.</p>
+    <p>El archivo es válido. Revisa los datos y confirma la carga; todavía no se ha guardado nada. Las filas que ya existen en tu corredora (mismo ejercicio, mercado, instrumento y secuencia) reemplazan sus datos y factores.</p>
   </div>
 </div>
 
 <section class="panel form-section">
   <div class="record-summary">
-    <div><span>Calificaciones a cargar</span><strong>{{ resumen.filas }}</strong></div>
+    <div><span>Calificaciones nuevas</span><strong>{{ resumen.nuevas }}</strong></div>
+    <div><span>Calificaciones a actualizar</span><strong>{{ resumen.actualizadas }}</strong></div>
     <div><span>Instrumentos no inscritos nuevos</span><strong>{{ resumen.instrumentos_nuevos }}</strong></div>
     <div><span>Errores</span><strong class="text-success">0</strong></div>
   </div>
@@ -33,6 +34,7 @@
       <thead>
         <tr>
           <th class="number">Fila</th>
+          <th>Acción</th>
           <th>Ejercicio</th>
           <th>Mercado</th>
           <th>Instrumento</th>
@@ -46,6 +48,7 @@
         {% for fila in filas %}
           <tr>
             <td class="number text-muted">{{ fila.linea }}</td>
+            <td>{% if fila.existente %}<span class="badge badge--modificar">Actualiza</span>{% else %}<span class="badge badge--crear">Nueva</span>{% endif %}</td>
             <td>{{ fila.ejercicio }}</td>
             <td>{{ fila.mercado }}</td>
             <td><strong>{{ fila.codigo }}</strong></td>

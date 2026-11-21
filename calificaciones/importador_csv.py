@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 from django.core.exceptions import ValidationError
 from django.core.validators import DecimalValidator
 from django.db import transaction
+from django.utils import timezone
 
 from .models import CONCEPTOS, CONCEPTOS_SUMA, CalificacionBase, CalificacionLocal, DetalleLocal, Instrumento, Mercado
 
@@ -202,40 +203,59 @@ def _instrumentos_existentes(registros):
     return {(instrumento.codigo, instrumento.mercado): instrumento for instrumento in existentes}
 
 
-def _verificar_duplicados(registros, corredora, instrumentos):
-    """Rechaza el archivo si alguna fila ya existe como calificación local activa de la corredora.
+def _clave(registro):
+    return (registro['codigo'], registro['mercado'], registro['ejercicio'], registro['secuencia'])
 
-    Las dadas de baja no cuentan: se conservan como histórico y se pueden volver a cargar.
+
+def _calificaciones_existentes(registros, corredora, instrumentos, bloquear=False):
+    """Calificaciones locales activas de la corredora que ya tienen la llave funcional de alguna fila.
+
+    La llave es corredora + ejercicio + mercado + instrumento + secuencia del evento. Las dadas de
+    baja no cuentan: se conservan como histórico y la fila del archivo crea una nueva.
     """
-    ids_existentes = [instrumento.pk for instrumento in instrumentos.values()]
-    if not ids_existentes:
-        return
-    claves_existentes = set(
-        CalificacionLocal.objects.filter(
-            corredora=corredora,
-            activa=True,
-            instrumento_id__in=ids_existentes,
-        ).values_list('instrumento__codigo', 'instrumento__mercado', 'ejercicio', 'secuencia_evento')
-    )
-    duplicados = [
-        registro['linea']
-        for registro in registros
-        if (registro['codigo'], registro['mercado'], registro['ejercicio'], registro['secuencia']) in claves_existentes
-    ]
-    if duplicados:
-        filas = ', '.join(str(linea) for linea in duplicados[:10])
-        sufijo = ' (y más)' if len(duplicados) > 10 else ''
-        raise ErrorCSV(f'Hay registros existentes duplicados en las filas {filas}{sufijo}.')
+    ids_instrumentos = [instrumento.pk for instrumento in instrumentos.values()]
+    if not ids_instrumentos:
+        return {}
+    consulta = CalificacionLocal.objects.filter(
+        corredora=corredora,
+        activa=True,
+        instrumento_id__in=ids_instrumentos,
+        ejercicio__in={registro['ejercicio'] for registro in registros},
+        secuencia_evento__in={registro['secuencia'] for registro in registros},
+    ).select_related('instrumento')
+    if bloquear:
+        consulta = consulta.select_for_update()
+    claves = {_clave(registro) for registro in registros}
+    existentes = {}
+    for calificacion in consulta:
+        clave = (
+            calificacion.instrumento.codigo,
+            calificacion.instrumento.mercado,
+            calificacion.ejercicio,
+            calificacion.secuencia_evento,
+        )
+        if clave in claves:
+            existentes[clave] = calificacion
+    return existentes
 
 
 def validar_csv(archivo, corredora):
-    """Lee y valida el archivo completo sin guardar nada. Devuelve los registros y un resumen."""
+    """Lee y valida el archivo completo sin guardar nada. Devuelve los registros y un resumen.
+
+    Cada registro queda marcado con ``existente``: True si va a actualizar una calificación
+    activa de la corredora, False si va a crear una nueva.
+    """
     registros = _leer_csv(archivo)
     instrumentos = _instrumentos_existentes(registros)
-    _verificar_duplicados(registros, corredora, instrumentos)
+    existentes = _calificaciones_existentes(registros, corredora, instrumentos)
+    for registro in registros:
+        registro['existente'] = _clave(registro) in existentes
     pares = {(registro['codigo'], registro['mercado']) for registro in registros}
+    actualizadas = sum(registro['existente'] for registro in registros)
     resumen = {
         'filas': len(registros),
+        'nuevas': len(registros) - actualizadas,
+        'actualizadas': actualizadas,
         'instrumentos_nuevos': len(pares - instrumentos.keys()),
     }
     return registros, resumen
@@ -245,17 +265,28 @@ def cargar_calificaciones_csv(archivo, corredora):
     return guardar_registros(_leer_csv(archivo), corredora)
 
 
+CAMPOS_ACTUALIZABLES = (
+    'fecha_pago', 'numero_dividendo', 'descripcion', 'valor_historico',
+    'factor_actualizacion', 'isfut', 'forma_ingreso', 'modificada',
+)
+
+
 def guardar_registros(registros, corredora):
-    """Guarda los registros ya leídos en una sola transacción: todo o nada."""
+    """Guarda los registros ya leídos en una sola transacción: todo o nada.
+
+    Las filas cuya llave funcional ya existe como calificación activa de la corredora la
+    actualizan (datos y los 30 detalles); las demás crean una calificación nueva.
+    Devuelve ``{'nuevas': n, 'actualizadas': m}``.
+    """
     codigos = {registro['codigo'] for registro in registros}
     mercados = {registro['mercado'] for registro in registros}
     pares_instrumento = {(registro['codigo'], registro['mercado']) for registro in registros}
 
     with transaction.atomic():
         instrumentos = _instrumentos_existentes(registros)
-        # Se vuelve a revisar dentro de la transacción: entre la previsualización y la
-        # confirmación alguien pudo haber ingresado la misma calificación.
-        _verificar_duplicados(registros, corredora, instrumentos)
+        # Se vuelve a buscar dentro de la transacción: entre la previsualización y la
+        # confirmación alguien pudo haber ingresado o dado de baja una calificación.
+        existentes = _calificaciones_existentes(registros, corredora, instrumentos, bloquear=True)
 
         faltantes = pares_instrumento - instrumentos.keys()
         if faltantes:
@@ -281,31 +312,41 @@ def guardar_registros(registros, corredora):
             ).values_list('pk', 'instrumento_id', 'ejercicio', 'secuencia_evento')
         }
 
-        calificaciones = [
-            CalificacionLocal(
-                corredora=corredora,
-                instrumento=instrumentos[(registro['codigo'], registro['mercado'])],
-                base=bases.get((
-                    instrumentos[(registro['codigo'], registro['mercado'])].pk,
-                    registro['ejercicio'],
-                    registro['secuencia'],
-                )),
-                ejercicio=registro['ejercicio'],
-                fecha_pago=registro['fecha_pago'],
-                secuencia_evento=registro['secuencia'],
-                numero_dividendo=registro['numero_dividendo'],
-                descripcion=registro['descripcion'],
-                valor_historico=registro['valor_historico'],
-                factor_actualizacion=registro['factor_actualizacion'],
-                isfut=registro['isfut'],
-                forma_ingreso=CalificacionLocal.FormaIngreso.ARCHIVO,
+        ahora = timezone.now()
+        nuevas, actualizadas = [], []
+        for registro in registros:
+            calificacion = existentes.get(_clave(registro))
+            if calificacion is None:
+                instrumento = instrumentos[(registro['codigo'], registro['mercado'])]
+                calificacion = CalificacionLocal(
+                    corredora=corredora,
+                    instrumento=instrumento,
+                    base_id=bases.get((instrumento.pk, registro['ejercicio'], registro['secuencia'])),
+                    ejercicio=registro['ejercicio'],
+                    secuencia_evento=registro['secuencia'],
+                )
+                nuevas.append((calificacion, registro))
+            else:
+                calificacion.modificada = ahora
+                actualizadas.append((calificacion, registro))
+            calificacion.fecha_pago = registro['fecha_pago']
+            calificacion.numero_dividendo = registro['numero_dividendo']
+            calificacion.descripcion = registro['descripcion']
+            calificacion.valor_historico = registro['valor_historico']
+            calificacion.factor_actualizacion = registro['factor_actualizacion']
+            calificacion.isfut = registro['isfut']
+            calificacion.forma_ingreso = CalificacionLocal.FormaIngreso.ARCHIVO
+
+        CalificacionLocal.objects.bulk_create([c for c, _ in nuevas], batch_size=1000)
+        if actualizadas:
+            CalificacionLocal.objects.bulk_update(
+                [c for c, _ in actualizadas], CAMPOS_ACTUALIZABLES, batch_size=1000,
             )
-            for registro in registros
-        ]
-        CalificacionLocal.objects.bulk_create(calificaciones, batch_size=1000)
+            # Los detalles de las actualizadas se reemplazan completos por los del archivo.
+            DetalleLocal.objects.filter(calificacion__in=[c for c, _ in actualizadas]).delete()
 
         detalles_pendientes = []
-        for calificacion, registro in zip(calificaciones, registros):
+        for calificacion, registro in nuevas + actualizadas:
             if calificacion.pk is None:
                 raise RuntimeError('La base de datos no devolvió el identificador de una calificación.')
             detalles_pendientes.extend(
@@ -318,4 +359,4 @@ def guardar_registros(registros, corredora):
         if detalles_pendientes:
             DetalleLocal.objects.bulk_create(detalles_pendientes, batch_size=2000)
 
-    return len(registros)
+    return {'nuevas': len(nuevas), 'actualizadas': len(actualizadas)}

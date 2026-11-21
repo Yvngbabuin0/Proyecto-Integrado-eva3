@@ -86,6 +86,7 @@ def previsualizar_csv(request):
             'fecha_pago': registro['fecha_pago'],
             'secuencia': registro['secuencia'],
             'descripcion': registro['descripcion'],
+            'existente': registro['existente'],
             'suma': sum((f for n, _, f in registro['detalles'] if n in CONCEPTOS_SUMA), Decimal(0)),
         }
         for registro in registros[:FILAS_PREVISUALIZADAS]
@@ -109,14 +110,18 @@ def confirmar_csv(request):
         return redirect('calificaciones:cargar_csv')
     try:
         registros, _ = validar_csv(io.BytesIO(_ruta(pendiente['id']).read_bytes()), corredora_actual(request))
-        total = guardar_registros(registros, corredora_actual(request))
+        resultado = guardar_registros(registros, corredora_actual(request))
     except ErrorCSV as error:
         messages.error(request, str(error))
         return redirect('calificaciones:cargar_csv')
     finally:
         _descartar(request)
 
-    messages.success(request, f'Se cargaron {total} calificaciones correctamente.')
+    messages.success(
+        request,
+        f"Carga confirmada: {resultado['nuevas']} calificaciones nuevas y "
+        f"{resultado['actualizadas']} actualizadas.",
+    )
     return redirect('calificaciones:mantenedor')
 
 
