@@ -27,8 +27,6 @@ FACTOR_MAXIMO = Decimal(1)
 DECIMALES_FACTOR = Decimal('0.00000001')
 # Suma máxima permitida de los factores 8 a 19.
 SUMA_FACTORES_MAXIMA = Decimal(1)
-# Tolerancia para la suma de factores 8-19 cuando vienen de cálculo (redondeo acumulado).
-TOLERANCIA_SUMA_POR_DEFECTO = Decimal('0.00000006')
 
 # Los conceptos 34 a 37 no tienen fórmula en el HDU. Por defecto se les asigna
 # factor 0; cambiar esta constante (por ejemplo a ``Decimal('0.5')``) modifica
@@ -102,23 +100,17 @@ def suma_factores_8_a_19(factores: dict) -> Decimal:
     return sum((factores.get(n, Decimal(0)) for n in CONCEPTOS_SUMA), Decimal(0))
 
 
-def factores_validos(factores: dict, *, estricto: bool = True) -> bool:
+def factores_validos(factores: dict) -> bool:
     """Valida las reglas de los factores.
 
     Cada factor 8 a 37 debe ser <= 1 y la suma de los factores 8 a 19 debe ser
-    <= 1. Si ``estricto=True`` (por defecto), la suma debe ser <= 1 sin tolerancia.
-    Si ``estricto=False``, se permite una tolerancia de ``TOLERANCIA_SUMA_POR_DEFECTO``
-    para cubrir el redondeo acumulado de factores calculados desde montos.
-
-    Los factores que entrega :func:`factores_desde_montos` ya suman exactamente 1
-    (véase :func:`_repartir_suma`), así que pasan esta validación sin excepciones.
+    <= 1, sin tolerancia: si la supera, se bloquea. Los factores que entrega
+    :func:`factores_desde_montos` ya suman exactamente 1 (véase
+    :func:`_repartir_suma`), así que pasan esta validación sin excepciones.
     """
     # Rango individual aplica a todos los factores 8 a 37, incluidos los de
     # ingreso directo (34 a 37) que no tienen fórmula pero sí validación de rango.
     for numero in CONCEPTOS_FACTORES:
         if factores.get(numero, Decimal(0)) > FACTOR_MAXIMO:
             return False
-    suma = suma_factores_8_a_19(factores)
-    if estricto:
-        return suma <= SUMA_FACTORES_MAXIMA
-    return suma <= SUMA_FACTORES_MAXIMA + TOLERANCIA_SUMA_POR_DEFECTO
+    return suma_factores_8_a_19(factores) <= SUMA_FACTORES_MAXIMA
