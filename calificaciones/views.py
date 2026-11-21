@@ -104,7 +104,7 @@ def formulario(request, pk=None):
                 'calificacion': calificacion if pk else None,
                 'form': form,
                 'detalles': detalles,
-                'suma_factores_8_a_19': detalles.suma_mostrada(),
+                'suma_factores_8_a_19': suma_factores_8_a_19(factores),
             })
 
     if datos is not None and form.is_valid() and detalles.is_valid():

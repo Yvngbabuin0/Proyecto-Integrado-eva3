@@ -167,11 +167,3 @@ class DetallesForm(forms.Form):
         """Borra los factores 8 a 33 del POST, dejando solo los montos."""
         for numero in CONCEPTOS_CON_FORMULA:
             self.data.pop(f'factor_{numero}', None)
-
-    def factores_mostrados(self):
-        """Factores 8 a 33 que se están mostrando en pantalla (limpios o calculados)."""
-        return {n: self.cleaned_data.get(f'factor_{n}') or Decimal(0) for n in CONCEPTOS_CON_FORMULA}
-
-    def suma_mostrada(self):
-        """Suma de los factores 8 a 19 que se están mostrando en pantalla."""
-        return sum((self.factores_mostrados()[n] for n in CONCEPTOS_SUMA), Decimal(0))
