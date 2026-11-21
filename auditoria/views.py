@@ -31,7 +31,10 @@ def con_entidad(eventos):
 @require_GET
 def listado(request):
     eventos = EventoAuditoria.objects.select_related('corredora')
-    filtro = FiltroEventosForm(request.GET or None)
+    if request.user.corredora_id:
+        eventos = eventos.filter(corredora=request.user.corredora)
+
+    filtro = FiltroEventosForm(request.GET or None, user_corredora=request.user.corredora_id)
     if filtro.is_valid():
         datos = filtro.cleaned_data
         if datos['fecha']:
@@ -58,7 +61,10 @@ def listado(request):
 @permission_required('auditoria.view_eventoauditoria', raise_exception=True)
 @require_GET
 def detalle(request, pk):
-    evento = get_object_or_404(EventoAuditoria.objects.select_related('corredora'), pk=pk)
+    query = EventoAuditoria.objects.select_related('corredora')
+    if request.user.corredora_id:
+        query = query.filter(corredora=request.user.corredora)
+    evento = get_object_or_404(query, pk=pk)
     con_entidad([evento])
     return render(request, 'auditoria/detalle.html', {
         'evento': evento,

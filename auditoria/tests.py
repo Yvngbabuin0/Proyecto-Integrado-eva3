@@ -154,11 +154,9 @@ class AccesoAuditoriaTests(TestCase):
     def setUpTestData(cls):
         cls.corredora = Corredora.objects.create(rut='1-9', nombre='Corredora A')
         cls.auditor = crear_usuario('auditor', 'Auditor')
-        cls.usuarios_sin_acceso = [
-            crear_usuario('corredor', 'Corredor', corredora=cls.corredora),
-            crear_usuario('analista', 'Analista Tributario', corredora=cls.corredora),
-            crear_usuario('administrador', 'Administrador', is_staff=True),
-        ]
+        cls.corredor = crear_usuario('corredor', 'Corredor', corredora=cls.corredora)
+        cls.analista = crear_usuario('analista', 'Analista Tributario', corredora=cls.corredora)
+        cls.administrador = crear_usuario('administrador', 'Administrador', is_staff=True)
 
     def test_auditor_puede_consultar(self):
         self.client.force_login(self.auditor)
@@ -169,12 +167,18 @@ class AccesoAuditoriaTests(TestCase):
         self.assertContains(respuesta, 'Eventos de auditoría')
         self.assertEqual(self.client.post(reverse('auditoria:listado')).status_code, 405)
 
-    def test_otros_roles_reciben_403(self):
-        for usuario in self.usuarios_sin_acceso:
-            with self.subTest(rol=usuario.groups.get().name):
+    def test_corredor_y_analista_pueden_consultar_su_corredora(self):
+        for usuario, rol in [(self.corredor, 'Corredor'), (self.analista, 'Analista Tributario')]:
+            with self.subTest(rol=rol):
                 self.client.force_login(usuario)
                 respuesta = self.client.get(reverse('auditoria:listado'))
-                self.assertEqual(respuesta.status_code, 403)
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertContains(respuesta, 'Eventos de auditoría')
+
+    def test_administrador_sin_corredora_recibe_403(self):
+        self.client.force_login(self.administrador)
+        respuesta = self.client.get(reverse('auditoria:listado'))
+        self.assertEqual(respuesta.status_code, 403)
 
 
 
@@ -244,4 +248,99 @@ class ConsultaLegibleTests(TestCase):
     def test_detalle_solo_para_quien_puede_ver_la_auditoria(self):
         self.operar(self.analista_a)
         evento = EventoAuditoria.objects.get()
-        self.assertEqual(self.client.get(reverse('auditoria:detalle', args=[evento.pk])).status_code, 403)
+        # Analista Tributario can now access their own corredora's events
+        self.client.force_login(self.analista_a)
+        respuesta = self.client.get(reverse('auditoria:detalle', args=[evento.pk]))
+        self.assertEqual(respuesta.status_code, 200)
+
+        # But Auditor should also be able to see it
+        self.client.force_login(self.auditor)
+        respuesta = self.client.get(reverse('auditoria:detalle', args=[evento.pk]))
+        self.assertEqual(respuesta.status_code, 200)
+
+        # Other users without the permission get 403
+        from django.contrib.auth.models import Group
+        sin_permiso = Usuario.objects.create_user('sin_permiso', corredora=self.corredora_a)
+        # Don't add any group
+        self.client.force_login(sin_permiso)
+        respuesta = self.client.get(reverse('auditoria:detalle', args=[evento.pk]))
+        self.assertEqual(respuesta.status_code, 403)
+
+
+class FiltradoPorCorredoraTests(TestCase):
+    """Corredor y Analista solo ven eventos de su propia corredora."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.corredora_a = Corredora.objects.create(rut='1-9', nombre='Corredora A')
+        cls.corredora_b = Corredora.objects.create(rut='2-7', nombre='Corredora B')
+        cls.analista_a = crear_usuario('analista_a', 'Analista Tributario', corredora=cls.corredora_a)
+        cls.analista_b = crear_usuario('analista_b', 'Analista Tributario', corredora=cls.corredora_b)
+        cls.corredor_a = crear_usuario('corredor_a', 'Corredor', corredora=cls.corredora_a)
+        cls.auditor = crear_usuario('auditor', 'Auditor')
+        cls.instrumento = Instrumento.objects.create(codigo='JEAP', mercado=Mercado.ACCIONES)
+
+    def _crear_evento(self, usuario, corredora, descripcion):
+        self.client.force_login(usuario)
+        respuesta = self.client.post(reverse('calificaciones:ingresar'), datos_formulario(
+            codigo_instrumento='JEAP',
+            secuencia_evento='100000900',
+            descripcion=descripcion,
+        ))
+        calificacion = CalificacionLocal.objects.get(descripcion=descripcion)
+        return EventoAuditoria.objects.get(calificacion_id=calificacion.pk, accion=EventoAuditoria.Accion.CREAR)
+
+    def test_corredor_y_analista_ven_solo_sus_eventos_en_listado(self):
+        evento_a = self._crear_evento(self.analista_a, self.corredora_a, 'Evento A')
+        evento_b = self._crear_evento(self.analista_b, self.corredora_b, 'Evento B')
+
+        for usuario, rol in [(self.analista_a, 'Analista Tributario'), (self.corredor_a, 'Corredor')]:
+            with self.subTest(rol=rol):
+                self.client.force_login(usuario)
+                respuesta = self.client.get(reverse('auditoria:listado'))
+                self.assertEqual(respuesta.status_code, 200)
+                # The entity shown is "JEAP · evento 100000900" (instrumento + sequence)
+                self.assertContains(respuesta, 'JEAP · evento 100000900')
+                self.assertEqual(respuesta.context['pagina'].paginator.count, 1)
+                # Even if they try to filter by corredora B, they should only see their own
+                respuesta_filtro = self.client.get(reverse('auditoria:listado'), {'corredora': self.corredora_b.pk})
+                self.assertEqual(respuesta_filtro.context['pagina'].paginator.count, 0)
+
+    def test_corredor_y_analista_reciben_404_en_detalle_de_otra_corredora(self):
+        evento_a = self._crear_evento(self.analista_a, self.corredora_a, 'Evento A')
+        evento_b = self._crear_evento(self.analista_b, self.corredora_b, 'Evento B')
+
+        for usuario, rol in [(self.analista_a, 'Analista Tributario'), (self.corredor_a, 'Corredor')]:
+            with self.subTest(rol=rol):
+                self.client.force_login(usuario)
+                respuesta = self.client.get(reverse('auditoria:detalle', args=[evento_b.pk]))
+                self.assertEqual(respuesta.status_code, 404)
+
+    def test_auditor_ve_todas_las_corredoras(self):
+        evento_a = self._crear_evento(self.analista_a, self.corredora_a, 'Evento A')
+        evento_b = self._crear_evento(self.analista_b, self.corredora_b, 'Evento B')
+
+        self.client.force_login(self.auditor)
+        respuesta = self.client.get(reverse('auditoria:listado'))
+        self.assertEqual(respuesta.status_code, 200)
+        # Entities are shown as "JEAP · evento 100000900"
+        self.assertContains(respuesta, 'JEAP · evento 100000900')
+        self.assertEqual(respuesta.context['pagina'].paginator.count, 2)
+
+        # Auditor can filter by corredora
+        por_corredora = self.client.get(reverse('auditoria:listado'), {'corredora': self.corredora_b.pk})
+        self.assertEqual(por_corredora.context['pagina'].paginator.count, 1)
+        self.assertContains(por_corredora, 'JEAP · evento 100000900')
+
+        # Auditor can access any detail
+        self.assertEqual(self.client.get(reverse('auditoria:detalle', args=[evento_a.pk])).status_code, 200)
+        self.assertEqual(self.client.get(reverse('auditoria:detalle', args=[evento_b.pk])).status_code, 200)
+
+    def test_filtro_corredora_oculto_para_usuarios_con_corredora(self):
+        self.client.force_login(self.analista_a)
+        respuesta = self.client.get(reverse('auditoria:listado'))
+        # The form should have corredora as hidden input
+        self.assertIn('corredora', respuesta.context['filtro'].fields)
+        field = respuesta.context['filtro'].fields['corredora']
+        from django import forms
+        self.assertIsInstance(field.widget, forms.HiddenInput)
