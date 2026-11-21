@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+
+{% block titulo %}Previsualizar carga CSV · Calificaciones Tributarias{% endblock %}
+
+{% block contenido %}
+<a href="{% url 'calificaciones:cargar_csv' %}" class="back-link">← Elegir otro archivo</a>
+
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">Carga masiva · Previsualización</p>
+    <h1>{{ nombre }}</h1>
+    <p>El archivo es válido. Revisa los datos y confirma la carga; todavía no se ha guardado nada.</p>
+  </div>
+</div>
+
+<section class="panel form-section">
+  <div class="record-summary">
+    <div><span>Calificaciones a cargar</span><strong>{{ resumen.filas }}</strong></div>
+    <div><span>Instrumentos no inscritos nuevos</span><strong>{{ resumen.instrumentos_nuevos }}</strong></div>
+    <div><span>Errores</span><strong class="text-success">0</strong></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="table-toolbar">
+    <div>
+      <h2>Filas del archivo</h2>
+      <span>{% if ocultas %}Se muestran las primeras {{ filas|length }} de {{ resumen.filas }}{% else %}{{ resumen.filas }} fila{{ resumen.filas|pluralize }}{% endif %}</span>
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th class="number">Fila</th>
+          <th>Ejercicio</th>
+          <th>Mercado</th>
+          <th>Instrumento</th>
+          <th>Fecha pago</th>
+          <th>Secuencia evento</th>
+          <th>Descripción</th>
+          <th class="number">Suma F8–F19</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for fila in filas %}
+          <tr>
+            <td class="number text-muted">{{ fila.linea }}</td>
+            <td>{{ fila.ejercicio }}</td>
+            <td>{{ fila.mercado }}</td>
+            <td><strong>{{ fila.codigo }}</strong></td>
+            <td>{{ fila.fecha_pago|date:"d-m-Y" }}</td>
+            <td class="mono">{{ fila.secuencia }}</td>
+            <td>{{ fila.descripcion }}</td>
+            <td class="number">{{ fila.suma|floatformat:8 }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="form-actions">
+  <form method="post" action="{% url 'calificaciones:cancelar_csv' %}">
+    {% csrf_token %}
+    <button type="submit" class="button button--ghost">Cancelar</button>
+  </form>
+  <form method="post" action="{% url 'calificaciones:confirmar_csv' %}">
+    {% csrf_token %}
+    <button type="submit" class="button button--primary">Confirmar carga de {{ resumen.filas }} calificaci{{ resumen.filas|pluralize:"ón,ones" }}</button>
+  </form>
+</div>
+{% endblock %}

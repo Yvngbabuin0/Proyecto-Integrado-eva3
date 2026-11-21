@@ -1,11 +1,14 @@
 import csv
 import io
+import shutil
+import tempfile
+from pathlib import Path
 from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth.models import Group
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from cuentas.models import Corredora, Usuario
@@ -197,17 +200,34 @@ class MantenedorTests(TestCase):
             self.assertRedirects(self.client.get(url), f"{reverse('cuentas:login')}?next={url}")
 
 
-class CargaCSVTests(TestCase):
+class CarpetaCSVTemporalMixin:
+    """Guarda los CSV pendientes en una carpeta temporal durante las pruebas."""
+
+    def setUp(self):
+        super().setUp()
+        self.carpeta_csv = Path(tempfile.mkdtemp())
+        ajuste = override_settings(CSV_PENDIENTES_DIR=self.carpeta_csv)
+        ajuste.enable()
+        self.addCleanup(ajuste.disable)
+        self.addCleanup(shutil.rmtree, self.carpeta_csv, ignore_errors=True)
+
+
+class CargaCSVTests(CarpetaCSVTemporalMixin, TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.corredora = Corredora.objects.create(rut='3-5', nombre='Corredora CSV')
         cls.analista = crear_usuario('analista_csv', 'Analista Tributario', corredora=cls.corredora)
 
     def setUp(self):
+        super().setUp()
         self.client.force_login(self.analista)
 
     def cargar(self, archivo):
-        return self.client.post(reverse('calificaciones:cargar_csv'), {'archivo': archivo})
+        """Sube el archivo y, si pasa la validación, confirma la carga desde la previsualización."""
+        respuesta = self.client.post(reverse('calificaciones:cargar_csv'), {'archivo': archivo})
+        if respuesta.status_code == 302 and respuesta['Location'] == reverse('calificaciones:previsualizar_csv'):
+            return self.client.post(reverse('calificaciones:confirmar_csv'))
+        return respuesta
 
     def test_carga_csv_guarda_calificaciones_y_detalles(self):
         respuesta = self.cargar(archivo_csv([{
@@ -531,3 +551,101 @@ class CatalogoConceptosTests(TestCase):
 
         self.assertIn('01.01.2017', ConceptoTributario.objects.get(numero=28).nombre)
         self.assertIn('31.12.2016', ConceptoTributario.objects.get(numero=33).nombre)
+
+
+class PrevisualizacionCSVTests(CarpetaCSVTemporalMixin, TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.corredora = Corredora.objects.create(rut='3-5', nombre='Corredora CSV')
+        cls.analista = crear_usuario('analista_csv', 'Analista Tributario', corredora=cls.corredora)
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.analista)
+
+    def subir(self, filas):
+        return self.client.post(reverse('calificaciones:cargar_csv'), {'archivo': archivo_csv(filas)})
+
+    def locales(self):
+        return CalificacionLocal.objects.filter(corredora=self.corredora)
+
+    def test_subir_muestra_la_previsualizacion_sin_guardar(self):
+        respuesta = self.subir([{'descripcion': 'Primera', 'factor_8': '0.6', 'factor_9': '0.4'}])
+        self.assertRedirects(respuesta, reverse('calificaciones:previsualizar_csv'))
+
+        previsualizacion = self.client.get(reverse('calificaciones:previsualizar_csv'))
+        self.assertContains(previsualizacion, 'Primera')
+        self.assertContains(previsualizacion, 'CSV-TEST')
+        self.assertContains(previsualizacion, '1,00000000')  # suma F8–F19
+        self.assertEqual(previsualizacion.context['resumen'], {'filas': 1, 'instrumentos_nuevos': 1})
+        self.assertFalse(self.locales().exists())
+        self.assertEqual(len(list(self.carpeta_csv.iterdir())), 1)
+
+    def test_confirmar_guarda_y_borra_el_archivo_pendiente(self):
+        self.subir([{'descripcion': 'Confirmada'}])
+        respuesta = self.client.post(reverse('calificaciones:confirmar_csv'))
+        self.assertRedirects(respuesta, reverse('calificaciones:mantenedor'))
+        self.assertTrue(self.locales().filter(descripcion='Confirmada').exists())
+        self.assertEqual(list(self.carpeta_csv.iterdir()), [])
+
+    def test_cancelar_no_guarda_nada_y_borra_el_archivo(self):
+        self.subir([{'descripcion': 'Cancelada'}])
+        respuesta = self.client.post(reverse('calificaciones:cancelar_csv'))
+        self.assertRedirects(respuesta, reverse('calificaciones:cargar_csv'))
+        self.assertFalse(self.locales().exists())
+        self.assertEqual(list(self.carpeta_csv.iterdir()), [])
+        self.assertRedirects(
+            self.client.get(reverse('calificaciones:previsualizar_csv')), reverse('calificaciones:cargar_csv'),
+        )
+
+    def test_archivo_invalido_no_queda_pendiente(self):
+        respuesta = self.subir([{'factor_8': '1.5'}])
+        self.assertContains(respuesta, 'factor_8 debe estar entre 0 y 1')
+        self.assertEqual(list(self.carpeta_csv.iterdir()), [])
+
+    def test_confirmar_sin_archivo_pendiente(self):
+        respuesta = self.client.post(reverse('calificaciones:confirmar_csv'), follow=True)
+        self.assertContains(respuesta, 'No hay un archivo pendiente')
+
+    def test_confirmar_y_cancelar_solo_aceptan_post(self):
+        self.assertEqual(self.client.get(reverse('calificaciones:confirmar_csv')).status_code, 405)
+        self.assertEqual(self.client.get(reverse('calificaciones:cancelar_csv')).status_code, 405)
+
+    def test_duplicado_creado_despues_de_previsualizar_rechaza_la_carga(self):
+        self.subir([{'descripcion': 'Desde CSV'}])
+        instrumento = Instrumento.objects.create(codigo='CSV-TEST', mercado=Mercado.ACCIONES)
+        CalificacionLocal.objects.create(
+            corredora=self.corredora, instrumento=instrumento, ejercicio=2025,
+            fecha_pago=date(2025, 6, 30), secuencia_evento=500, descripcion='Ingresada a mano',
+        )
+        respuesta = self.client.post(reverse('calificaciones:confirmar_csv'), follow=True)
+        self.assertContains(respuesta, 'duplicados')
+        self.assertFalse(self.locales().filter(descripcion='Desde CSV').exists())
+
+    def test_otro_usuario_no_puede_confirmar_el_archivo_ajeno(self):
+        self.subir([{'descripcion': 'Ajena'}])
+        self.client.force_login(crear_usuario('analista_2', 'Analista Tributario', corredora=self.corredora))
+        respuesta = self.client.post(reverse('calificaciones:confirmar_csv'), follow=True)
+        self.assertContains(respuesta, 'No hay un archivo pendiente')
+        self.assertFalse(self.locales().filter(descripcion='Ajena').exists())
+
+    def test_corredor_no_puede_previsualizar_ni_confirmar(self):
+        self.client.force_login(crear_usuario('corredor_csv', 'Corredor', corredora=self.corredora))
+        self.assertEqual(self.client.get(reverse('calificaciones:previsualizar_csv')).status_code, 403)
+        self.assertEqual(self.client.post(reverse('calificaciones:confirmar_csv')).status_code, 403)
+
+
+class DuplicadosCSVTests(CarpetaCSVTemporalMixin, TestCase):
+    def test_una_calificacion_dada_de_baja_se_puede_volver_a_cargar(self):
+        corredora = Corredora.objects.create(rut='3-5', nombre='Corredora CSV')
+        self.client.force_login(crear_usuario('analista_csv', 'Analista Tributario', corredora=corredora))
+        instrumento = Instrumento.objects.create(codigo='CSV-TEST', mercado=Mercado.ACCIONES)
+        CalificacionLocal.objects.create(
+            corredora=corredora, instrumento=instrumento, ejercicio=2025, fecha_pago=date(2025, 6, 30),
+            secuencia_evento=500, descripcion='Dada de baja', activa=False,
+        )
+        respuesta = self.client.post(reverse('calificaciones:cargar_csv'), {'archivo': archivo_csv([{'descripcion': 'Nueva'}])})
+        self.assertRedirects(respuesta, reverse('calificaciones:previsualizar_csv'))
+        self.client.post(reverse('calificaciones:confirmar_csv'))
+        self.assertTrue(CalificacionLocal.objects.filter(descripcion='Nueva', activa=True).exists())
+        self.assertTrue(CalificacionLocal.objects.filter(descripcion='Dada de baja', activa=False).exists())

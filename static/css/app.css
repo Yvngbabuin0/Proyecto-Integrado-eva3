@@ -139,6 +139,7 @@ th.sticky-col { background: var(--bg); }
 .badge--modificar { background: var(--info-bg); color: var(--teal-dark); border-color: #b9dfe1; }
 .badge--baja { background: var(--warning-bg); color: var(--warning); border-color: #fedf89; }
 .text-muted { color: var(--muted); }
+.text-success { color: var(--success); }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 12px; border-top: 1px solid var(--line); }
 .visually-hidden {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
