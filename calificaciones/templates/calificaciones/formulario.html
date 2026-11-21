@@ -26,6 +26,8 @@
 <form method="post" novalidate>
   {% csrf_token %}
   {{ form.non_field_errors }}
+  <!-- Botón oculto para que Enter dispare "Guardar" (el primer submit del form) -->
+  <button type="submit" name="accion" value="guardar" style="display:none"></button>
 
   <section class="panel">
     <div class="form-section">
@@ -80,6 +82,19 @@
           </tbody>
         </table>
       </div>
+      {% if detalles.suma_mostrada is not None %}
+        <div class="suma-indicator">
+          <span class="suma-label">Suma F8–F19:</span>
+          <span class="suma-value {% if suma_factores_8_a_19 <= 1 %}suma-ok{% elif suma_factores_8_a_19 <= 1.00000006 %}suma-tolerancia{% else %}suma-error{% endif %}">
+            {{ suma_factores_8_a_19|floatformat:8 }}
+          </span>
+          {% if suma_factores_8_a_19 > 1 and suma_factores_8_a_19 <= 1.00000006 %}
+            <span class="suma-help">(dentro de tolerancia de redondeo: 0,00000006)</span>
+          {% elif suma_factores_8_a_19 > 1.00000006 %}
+            <span class="suma-error-msg">Supera el máximo permitido (1,00000000)</span>
+          {% endif %}
+        </div>
+      {% endif %}
     </div>
   </section>
 

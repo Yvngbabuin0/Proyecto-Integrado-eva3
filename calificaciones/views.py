@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.core.exceptions import PermissionDenied
@@ -9,7 +11,7 @@ from cuentas.sesion import corredora_actual
 
 from .forms import CalificacionForm, DetallesForm, FiltroForm
 from .models import CONCEPTOS, CalificacionBase, CalificacionLocal
-from .calculo import CONCEPTOS_CON_FORMULA, SumaCeroError, factores_desde_montos, factores_validos, suma_factores_8_a_19
+from .calculo import CONCEPTOS_CON_FORMULA, CONCEPTOS_SUMA, SumaCeroError, factores_desde_montos, factores_validos, suma_factores_8_a_19, TOLERANCIA_SUMA_POR_DEFECTO
 
 
 def con_factores(calificaciones):
@@ -108,8 +110,19 @@ def formulario(request, pk=None):
             })
 
     if datos is not None and form.is_valid() and detalles.is_valid():
-        # La suma de los factores 8 a 19 nunca puede superar 1, se hayan calculado o escrito a mano.
-        if not factores_validos(detalles.factores()):
+        # Validación de suma de factores 8-19:
+        # - Si los factores coinciden con los calculados desde montos → tolerancia (estricto=False).
+        # - Si el usuario los editó manualmente (o no hay montos) → estricto=True (sin tolerancia).
+        factores_enviados = detalles.factores()
+        try:
+            factores_calculados = detalles.factores_calculados()
+            son_calculados = all(
+                factores_enviados.get(n, Decimal(0)) == factores_calculados.get(n, Decimal(0))
+                for n in CONCEPTOS_SUMA
+            )
+        except SumaCeroError:
+            son_calculados = False
+        if not factores_validos(factores_enviados, estricto=not son_calculados):
             messages.error(request, 'La suma de los factores 8 a 19 no puede superar 1')
             return render(request, 'calificaciones/formulario.html', {
                 'corredora': corredora,

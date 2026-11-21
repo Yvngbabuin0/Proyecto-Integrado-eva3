@@ -169,6 +169,20 @@ th.sticky-col { background: var(--bg); }
 .concept-table tr.separador td { background: var(--bg); color: var(--muted); font-size: 12px; font-weight: 600; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
+/* Indicador de suma F8-F19 */
+.suma-indicator {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 12px 20px; background: var(--info-bg); border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.suma-label { font-size: 13px; font-weight: 500; color: var(--muted); }
+.suma-value { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 14px; }
+.suma-ok { color: var(--success); }
+.suma-tolerancia { color: var(--warning); }
+.suma-error { color: var(--error); }
+.suma-help { font-size: 12px; color: var(--warning); }
+.suma-error-msg { font-size: 12px; color: var(--error); }
+
 /* Confirmación de baja */
 .record-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 16px 0; }
 .record-summary span { display: block; color: var(--muted); font-size: 12px; }
