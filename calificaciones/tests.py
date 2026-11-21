@@ -602,6 +602,51 @@ class CalculoBotonTests(TestCase):
         self.assertNotContains(respuesta, '0E-')
         self.assertContains(respuesta, '0,00000000')
 
+    def test_calcular_factores_20_a_33_con_formula_hdu(self):
+        """Verifica que el botón Calcular calcule factores 8-33 usando la fórmula HDU."""
+        datos = {
+            'mercado': 'ACC',
+            'ejercicio': '2025',
+            'codigo_instrumento': 'NI',
+            'secuencia_evento': '100001',
+            'fecha_pago': '2025-01-01',
+            'numero_dividendo': '0',
+            'descripcion': 'Test HDU',
+            'valor_historico': '0',
+            'factor_actualizacion': '0',
+            # Montos del ejemplo HDU Hoja 3.2
+            'monto_8': '192770580',
+            'monto_9': '64161878',
+            'monto_10': '0',
+            'monto_11': '111812860',
+            'monto_25': '71298705',
+            'monto_30': '15837333',
+            # Monto en concepto 35 (ingreso directo - NO se debe calcular)
+            'monto_35': '10000000',
+            'accion': 'calcular',
+        }
+        uri = reverse('calificaciones:ingresar')
+        respuesta = self.client.post(uri, datos)
+        self.assertEqual(respuesta.status_code, 200)
+
+        # Verificar factores calculados en la respuesta (formato con coma decimal)
+        # F8 = 0.52277431
+        self.assertContains(respuesta, '0,52277431')
+        # F9 = 0.17400052
+        self.assertContains(respuesta, '0,17400052')
+        # F10 = 0.00000000
+        self.assertContains(respuesta, '0,00000000')
+        # F11 = 0.30322517
+        self.assertContains(respuesta, '0,30322517')
+        # F25 = 0.19335488
+        self.assertContains(respuesta, '0,19335488')
+        # F30 = 0.04294924
+        self.assertContains(respuesta, '0,04294924')
+
+        # El concepto 35 es de ingreso directo: aunque tenga monto, su factor no se calcula.
+        self.assertContains(respuesta, '<input type="text" name="factor_35" id="id_factor_35">', html=True)
+        self.assertNotIn('factor_35', respuesta.context['detalles'].data)
+
     def test_calcular_y_grabar_con_variaciones_intervencion_negada(self):
         self.skipTest('Skip complex variation test')
         datos = {
