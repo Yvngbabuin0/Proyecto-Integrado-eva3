@@ -7,28 +7,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from auditoria.models import EventoAuditoria, estado_calificacion
 from cuentas.sesion import corredora_actual
 
-from .forms import CargaCSVForm, CalificacionForm, DetallesForm, FiltroForm
-from .importador_csv import ErrorCSV, cargar_calificaciones_csv
+from .forms import CalificacionForm, DetallesForm, FiltroForm
 from .models import CONCEPTOS, CalificacionBase, CalificacionLocal
 from .calculo import CONCEPTOS_CON_FORMULA, SumaCeroError, factores_desde_montos, factores_validos, suma_factores_8_a_19
-
-
-@login_required
-@permission_required('calificaciones.carga_masiva', raise_exception=True)
-def cargar_csv(request):
-    datos = request.POST if request.method == 'POST' else None
-    archivos = request.FILES if request.method == 'POST' else None
-    form = CargaCSVForm(datos, archivos)
-    if request.method == 'POST' and form.is_valid():
-        try:
-            total = cargar_calificaciones_csv(form.cleaned_data['archivo'], corredora_actual(request))
-        except ErrorCSV as error:
-            messages.error(request, str(error))
-        else:
-            messages.success(request, f'Se cargaron {total} calificaciones correctamente.')
-            return redirect('calificaciones:mantenedor')
-
-    return render(request, 'calificaciones/cargar_csv.html', {'form': form})
 
 
 def con_factores(calificaciones):

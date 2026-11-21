@@ -1,11 +1,14 @@
 import csv
 import io
+import shutil
+import tempfile
+from pathlib import Path
 from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth.models import Group
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from cuentas.models import Corredora, Usuario
@@ -197,17 +200,34 @@ class MantenedorTests(TestCase):
             self.assertRedirects(self.client.get(url), f"{reverse('cuentas:login')}?next={url}")
 
 
-class CargaCSVTests(TestCase):
+class CarpetaCSVTemporalMixin:
+    """Guarda los CSV pendientes en una carpeta temporal durante las pruebas."""
+
+    def setUp(self):
+        super().setUp()
+        self.carpeta_csv = Path(tempfile.mkdtemp())
+        ajuste = override_settings(CSV_PENDIENTES_DIR=self.carpeta_csv)
+        ajuste.enable()
+        self.addCleanup(ajuste.disable)
+        self.addCleanup(shutil.rmtree, self.carpeta_csv, ignore_errors=True)
+
+
+class CargaCSVTests(CarpetaCSVTemporalMixin, TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.corredora = Corredora.objects.create(rut='3-5', nombre='Corredora CSV')
         cls.analista = crear_usuario('analista_csv', 'Analista Tributario', corredora=cls.corredora)
 
     def setUp(self):
+        super().setUp()
         self.client.force_login(self.analista)
 
     def cargar(self, archivo):
-        return self.client.post(reverse('calificaciones:cargar_csv'), {'archivo': archivo})
+        """Sube el archivo y, si pasa la validación, confirma la carga desde la previsualización."""
+        respuesta = self.client.post(reverse('calificaciones:cargar_csv'), {'archivo': archivo})
+        if respuesta.status_code == 302 and respuesta['Location'] == reverse('calificaciones:previsualizar_csv'):
+            return self.client.post(reverse('calificaciones:confirmar_csv'))
+        return respuesta
 
     def test_carga_csv_guarda_calificaciones_y_detalles(self):
         respuesta = self.cargar(archivo_csv([{
@@ -531,3 +551,4 @@ class CatalogoConceptosTests(TestCase):
 
         self.assertIn('01.01.2017', ConceptoTributario.objects.get(numero=28).nombre)
         self.assertIn('31.12.2016', ConceptoTributario.objects.get(numero=33).nombre)
+

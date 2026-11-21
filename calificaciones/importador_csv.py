@@ -189,41 +189,63 @@ def _leer_csv(archivo):
     return registros
 
 
-def cargar_calificaciones_csv(archivo, corredora):
+def _instrumentos_existentes(registros):
+    codigos = {registro['codigo'] for registro in registros}
+    mercados = {registro['mercado'] for registro in registros}
+    existentes = Instrumento.objects.filter(codigo__in=codigos, mercado__in=mercados)
+    return {(instrumento.codigo, instrumento.mercado): instrumento for instrumento in existentes}
+
+
+def _verificar_duplicados(registros, corredora, instrumentos):
+    """Rechaza el archivo si alguna fila ya existe como calificación local de la corredora."""
+    ids_existentes = [instrumento.pk for instrumento in instrumentos.values()]
+    if not ids_existentes:
+        return
+    claves_existentes = set(
+        CalificacionLocal.objects.filter(
+            corredora=corredora,
+            instrumento_id__in=ids_existentes,
+        ).values_list('instrumento__codigo', 'instrumento__mercado', 'ejercicio', 'secuencia_evento')
+    )
+    duplicados = [
+        registro['linea']
+        for registro in registros
+        if (registro['codigo'], registro['mercado'], registro['ejercicio'], registro['secuencia']) in claves_existentes
+    ]
+    if duplicados:
+        filas = ', '.join(str(linea) for linea in duplicados[:10])
+        sufijo = ' (y más)' if len(duplicados) > 10 else ''
+        raise ErrorCSV(f'Hay registros existentes duplicados en las filas {filas}{sufijo}.')
+
+
+def validar_csv(archivo, corredora):
+    """Lee y valida el archivo completo sin guardar nada. Devuelve los registros y un resumen."""
     registros = _leer_csv(archivo)
+    instrumentos = _instrumentos_existentes(registros)
+    _verificar_duplicados(registros, corredora, instrumentos)
+    pares = {(registro['codigo'], registro['mercado']) for registro in registros}
+    resumen = {
+        'filas': len(registros),
+        'instrumentos_nuevos': len(pares - instrumentos.keys()),
+    }
+    return registros, resumen
+
+
+def cargar_calificaciones_csv(archivo, corredora):
+    return guardar_registros(_leer_csv(archivo), corredora)
+
+
+def guardar_registros(registros, corredora):
+    """Guarda los registros ya leídos en una sola transacción: todo o nada."""
     codigos = {registro['codigo'] for registro in registros}
     mercados = {registro['mercado'] for registro in registros}
     pares_instrumento = {(registro['codigo'], registro['mercado']) for registro in registros}
 
     with transaction.atomic():
-        existentes = Instrumento.objects.filter(codigo__in=codigos, mercado__in=mercados)
-        instrumentos = {(instrumento.codigo, instrumento.mercado): instrumento for instrumento in existentes}
-        ids_existentes = [instrumento.pk for instrumento in instrumentos.values()]
-
-        claves_existentes = set()
-        if ids_existentes:
-            claves_existentes = {
-                (codigo, mercado, ejercicio, secuencia)
-                for codigo, mercado, ejercicio, secuencia in CalificacionLocal.objects.filter(
-                    corredora=corredora,
-                    instrumento_id__in=ids_existentes,
-                ).values_list('instrumento__codigo', 'instrumento__mercado', 'ejercicio', 'secuencia_evento')
-            }
-
-        duplicados = [
-            registro['linea']
-            for registro in registros
-            if (
-                registro['codigo'],
-                registro['mercado'],
-                registro['ejercicio'],
-                registro['secuencia'],
-            ) in claves_existentes
-        ]
-        if duplicados:
-            filas = ', '.join(str(linea) for linea in duplicados[:10])
-            sufijo = ' (y más)' if len(duplicados) > 10 else ''
-            raise ErrorCSV(f'Hay registros existentes duplicados en las filas {filas}{sufijo}.')
+        instrumentos = _instrumentos_existentes(registros)
+        # Se vuelve a revisar dentro de la transacción: entre la previsualización y la
+        # confirmación alguien pudo haber ingresado la misma calificación.
+        _verificar_duplicados(registros, corredora, instrumentos)
 
         faltantes = pares_instrumento - instrumentos.keys()
         if faltantes:
