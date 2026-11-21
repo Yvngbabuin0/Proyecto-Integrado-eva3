@@ -110,7 +110,7 @@ def confirmar_csv(request):
         return redirect('calificaciones:cargar_csv')
     try:
         registros, _ = validar_csv(io.BytesIO(_ruta(pendiente['id']).read_bytes()), corredora_actual(request))
-        resultado = guardar_registros(registros, corredora_actual(request))
+        resultado = guardar_registros(registros, corredora_actual(request), request.user)
     except ErrorCSV as error:
         messages.error(request, str(error))
         return redirect('calificaciones:cargar_csv')

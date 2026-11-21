@@ -8,6 +8,8 @@ from django.core.validators import DecimalValidator
 from django.db import transaction
 from django.utils import timezone
 
+from auditoria.models import EventoAuditoria, estado_calificacion
+
 from .models import CONCEPTOS, CONCEPTOS_SUMA, CalificacionBase, CalificacionLocal, DetalleLocal, Instrumento, Mercado
 
 MAX_FILAS_CSV = 5000
@@ -271,12 +273,13 @@ CAMPOS_ACTUALIZABLES = (
 )
 
 
-def guardar_registros(registros, corredora):
+def guardar_registros(registros, corredora, usuario=None):
     """Guarda los registros ya leídos en una sola transacción: todo o nada.
 
     Las filas cuya llave funcional ya existe como calificación activa de la corredora la
     actualizan (datos y los 30 detalles); las demás crean una calificación nueva.
-    Devuelve ``{'nuevas': n, 'actualizadas': m}``.
+    Si se indica ``usuario``, cada fila deja un evento de auditoría (creación o modificación)
+    dentro de la misma transacción. Devuelve ``{'nuevas': n, 'actualizadas': m}``.
     """
     codigos = {registro['codigo'] for registro in registros}
     mercados = {registro['mercado'] for registro in registros}
@@ -312,6 +315,16 @@ def guardar_registros(registros, corredora):
             ).values_list('pk', 'instrumento_id', 'ejercicio', 'secuencia_evento')
         }
 
+        anteriores = {}
+        if usuario is not None and existentes:
+            detalles_anteriores = {}
+            for detalle in DetalleLocal.objects.filter(calificacion__in=list(existentes.values())):
+                detalles_anteriores.setdefault(detalle.calificacion_id, []).append(detalle)
+            anteriores = {
+                calificacion.pk: estado_calificacion(calificacion, detalles_anteriores.get(calificacion.pk, []))
+                for calificacion in existentes.values()
+            }
+
         ahora = timezone.now()
         nuevas, actualizadas = [], []
         for registro in registros:
@@ -346,17 +359,33 @@ def guardar_registros(registros, corredora):
             DetalleLocal.objects.filter(calificacion__in=[c for c, _ in actualizadas]).delete()
 
         detalles_pendientes = []
+        eventos = []
         for calificacion, registro in nuevas + actualizadas:
             if calificacion.pk is None:
                 raise RuntimeError('La base de datos no devolvió el identificador de una calificación.')
-            detalles_pendientes.extend(
+            detalles = [
                 DetalleLocal(calificacion=calificacion, concepto_id=numero, monto=monto, factor=factor)
                 for numero, monto, factor in registro['detalles']
-            )
+            ]
+            detalles_pendientes.extend(detalles)
+            if usuario is not None:
+                eventos.append(EventoAuditoria(
+                    accion=(
+                        EventoAuditoria.Accion.MODIFICAR if calificacion.pk in anteriores
+                        else EventoAuditoria.Accion.CREAR
+                    ),
+                    usuario=usuario,
+                    usuario_nombre=usuario.get_username(),
+                    corredora=corredora,
+                    calificacion_id=calificacion.pk,
+                    estado_anterior=anteriores.get(calificacion.pk),
+                    estado_posterior=estado_calificacion(calificacion, detalles),
+                ))
             if len(detalles_pendientes) >= 2000:
                 DetalleLocal.objects.bulk_create(detalles_pendientes, batch_size=2000)
                 detalles_pendientes.clear()
         if detalles_pendientes:
             DetalleLocal.objects.bulk_create(detalles_pendientes, batch_size=2000)
+        EventoAuditoria.objects.bulk_create(eventos, batch_size=1000)
 
     return {'nuevas': len(nuevas), 'actualizadas': len(actualizadas)}
